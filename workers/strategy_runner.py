@@ -1,0 +1,114 @@
+"""Background worker that executes strategies automatically"""
+import asyncio
+import importlib
+import logging
+import datetime
+from typing import Dict, Any
+
+from core.redis_client import redis_client
+from core.broker_engine import NovaBrokerEngine
+from strategies.storage import list_strategies, update_strategy, get_all_user_ids
+
+# Alias for compatibility
+ThorEngine = NovaBrokerEngine
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("strategy-worker")
+
+class StrategyWorker:
+    """Background worker for executing strategies"""
+    
+    def __init__(self):
+        self.engine = NovaBrokerEngine()
+        self.running = True
+        self.interval = 60
+        logger.info("🚀 Strategy Worker initialized")
+    
+    async def execute_strategy(self, uid: str, strategy_data: Dict) -> Dict:
+        """Load and execute a single strategy"""
+        try:
+            module_name = f"strategies.{strategy_data['type']}"
+
+            # Proper mapping for strategy class names
+            mapping = {
+                "dca": "DCAStrategy",
+                "triangle": "TriangleStrategy",
+                "dex": "DEXArbitrageStrategy"
+            }
+            class_name = mapping.get(
+                strategy_data["type"],
+                f"{strategy_data['type'].capitalize()}Strategy"
+            )
+
+            module = importlib.import_module(module_name)
+            StrategyClass = getattr(module, class_name)
+
+            strategy_obj = StrategyClass(
+                uid=uid,
+                symbol=strategy_data['symbol'],
+                amount=strategy_data['amount'],
+                frequency=strategy_data.get('frequency')
+            )
+            
+            strategy_obj.paused = strategy_data.get('paused', False)
+            strategy_obj.performance = strategy_data.get('performance', {})
+            strategy_obj.config = strategy_data.get('config', {})
+            
+            if not strategy_obj.paused:
+                result = await strategy_obj.execute(self.engine)
+                update_strategy(uid, strategy_data['strategy_id'], strategy_obj)
+                
+                logger.info(
+                    f"[{datetime.datetime.now(datetime.UTC)}] Executed {strategy_data['type']} "
+                    f"for {uid} - {strategy_data['symbol']} → {result.get('status')}"
+                )
+                return result
+            else:
+                return {"status": "paused"}
+                
+        except Exception as e:
+            logger.error(f"Strategy execution error: {e}")
+            return {"status": "error", "message": str(e)}
+    
+    async def run_for_user(self, uid: str):
+        """Execute all strategies for a single user"""
+        strategies = list_strategies(uid)
+        for strategy_data in strategies:
+            await self.execute_strategy(uid, strategy_data)
+    
+    async def run_cycle(self):
+        """Run one complete cycle for all users"""
+        uids = get_all_user_ids()
+        for uid in uids:
+            try:
+                await self.run_for_user(uid)
+            except Exception as e:
+                logger.error(f"Error processing user {uid}: {e}")
+        
+        # Write heartbeat after finishing cycle
+        redis_client.client.set("worker:last_heartbeat", datetime.datetime.now(datetime.UTC).isoformat())
+        logger.info("💓 Heartbeat updated")
+    
+    async def start(self):
+        """Main worker loop"""
+        logger.info(f"✅ Strategy worker started (interval: {self.interval}s)")
+        
+        while self.running:
+            try:
+                await self.run_cycle()
+                await asyncio.sleep(self.interval)
+            except KeyboardInterrupt:
+                break
+            except Exception as e:
+                logger.error(f"Worker error: {e}")
+                await asyncio.sleep(5)
+    
+    def stop(self):
+        self.running = False
+
+async def main():
+    worker = StrategyWorker()
+    await worker.start()
+
+if __name__ == "__main__":
+    asyncio.run(main())

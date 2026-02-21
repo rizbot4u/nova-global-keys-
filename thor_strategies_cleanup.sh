@@ -1,0 +1,244 @@
+#!/bin/bash
+# THOR STRATEGIES - CLEANUP & INTEGRATION SCRIPT
+# Run this after the creation script to ensure everything works
+
+echo "🔧 Running Thor Strategies cleanup and integration..."
+
+# ============================================================================
+# 1. FIX IMPORTS IN STRATEGY FILES
+# ============================================================================
+cd /srv/nova-global-keys
+
+# Fix base.py imports
+sed -i 's/from abc import ABC, abstractmethod/from abc import ABC, abstractmethod\nfrom typing import Dict, Any, Optional/g' strategies/base.py
+
+# Fix dca.py imports
+sed -i 's/from strategies.base import Strategy/from strategies.base import Strategy\nfrom core.redis_client import redis_client/g' strategies/dca.py
+
+# Fix triangle.py imports
+sed -i 's/from strategies.base import Strategy/from strategies.base import Strategy\nfrom typing import List, Dict, Any/g' strategies/triangle.py
+
+# Fix dex.py imports
+sed -i 's/from strategies.base import Strategy/from strategies.base import Strategy\nfrom typing import Dict, Any/g' strategies/dex.py
+
+# ============================================================================
+# 2. CREATE MISSING __init__.py FILES
+# ============================================================================
+touch /srv/nova-global-keys/strategies/__init__.py
+touch /srv/nova-global-keys/workers/__init__.py
+touch /srv/nova-global-keys/bot/commands/__init__.py
+
+# Add exports to strategies/__init__.py
+cat > /srv/nova-global-keys/strategies/__init__.py << 'EOF'
+"""Trading Strategies Package"""
+from .base import Strategy
+from .dca import DCAStrategy
+from .triangle import TriangleStrategy
+from .dex import DEXArbitrageStrategy
+from .storage import save_strategy, get_strategy, list_strategies, update_strategy, delete_strategy
+
+__all__ = [
+    'Strategy',
+    'DCAStrategy',
+    'TriangleStrategy',
+    'DEXArbitrageStrategy',
+    'save_strategy',
+    'get_strategy',
+    'list_strategies',
+    'update_strategy',
+    'delete_strategy'
+]
+EOF
+
+# ============================================================================
+# 3. UPDATE BOT RUNNER TO INCLUDE NEW COMMANDS
+# ============================================================================
+
+# Check if runner.py already has strategy imports
+if ! grep -q "from bot.commands.strategies" /srv/nova-global-keys/bot/runner.py; then
+    # Add import at the top
+    sed -i '1s/^/from bot.commands.strategies import register_strategy_commands\n/' /srv/nova-global-keys/bot/runner.py
+    
+    # Add registration in __init__
+    sed -i '/def __init__(self):/a \ \ \ \ \ \ \ \ self.register_strategy_commands()' /srv/nova-global-keys/bot/runner.py
+    
+    # Add method
+    cat >> /srv/nova-global-keys/bot/runner.py << 'EOF'
+
+    def register_strategy_commands(self):
+        """Register strategy commands"""
+        try:
+            from bot.commands.strategies import register_strategy_commands
+            register_strategy_commands(self.bot)
+            logger.info("✅ Strategy commands registered")
+        except Exception as e:
+            logger.error(f"Failed to register strategy commands: {e}")
+EOF
+fi
+
+# ============================================================================
+# 4. CREATE REQUIREMENTS FOR STRATEGIES
+# ============================================================================
+cat >> /srv/nova-global-keys/requirements.txt << 'EOF'
+
+# Strategy requirements
+importlib-metadata>=4.0.0
+numpy>=1.21.0
+pandas>=1.3.0
+EOF
+
+# ============================================================================
+# 5. CREATE SYSTEMD SERVICE FOR WORKER (OPTIONAL)
+# ============================================================================
+cat > /etc/systemd/system/nova-strategy-worker.service << 'EOF'
+[Unit]
+Description=Nova Strategy Worker
+After=network.target redis-server.service
+Wants=redis-server.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/srv/nova-global-keys
+ExecStart=/srv/nova-global-keys/venv/bin/python -m workers.strategy_runner
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# ============================================================================
+# 6. INSTALL DEPENDENCIES
+# ============================================================================
+echo "📦 Installing Python dependencies..."
+cd /srv/nova-global-keys
+pip install importlib-metadata numpy pandas 2>/dev/null || pip3 install importlib-metadata numpy pandas
+
+# ============================================================================
+# 7. CHECK FOR DUPLICATES AND CLEAN UP
+# ============================================================================
+echo "🧹 Checking for duplicate files..."
+
+# Check if old strategy files exist elsewhere
+if [ -f "/srv/nova-global-keys/strategies.py" ]; then
+    echo "⚠️ Found strategies.py - moving to backup"
+    mv /srv/nova-global-keys/strategies.py /srv/nova-global-keys/strategies.py.backup
+fi
+
+# Check for duplicate strategy folders
+if [ -d "/srv/nova-global-keys/strategy" ]; then
+    echo "⚠️ Found /strategy folder - merging contents"
+    cp -n /srv/nova-global-keys/strategy/* /srv/nova-global-keys/strategies/ 2>/dev/null
+    mv /srv/nova-global-keys/strategy /srv/nova-global-keys/strategy.backup
+fi
+
+# ============================================================================
+# 8. CREATE LAUNCH SCRIPT
+# ============================================================================
+cat > /srv/nova-global-keys/launch_all.sh << 'EOF'
+#!/bin/bash
+# Launch all Nova components
+
+cd /srv/nova-global-keys
+
+# Start main Thor engine
+echo "🚀 Starting Thor Engine..."
+pm2 start thor_engine.py --name "nova-thor" --interpreter python3
+
+# Start strategy worker
+echo "🤖 Starting Strategy Worker..."
+pm2 start workers/strategy_runner.py --name "strategy-worker" --interpreter python3
+
+# Show status
+echo ""
+pm2 status
+echo ""
+echo "✅ All components started!"
+EOF
+chmod +x /srv/nova-global-keys/launch_all.sh
+
+# ============================================================================
+# 9. UPDATE THOR ENGINE TO EXPOSE STRATEGY API
+# ============================================================================
+cat >> /srv/nova-global-keys/api/routes.py << 'EOF'
+
+# ===== STRATEGY API ENDPOINTS =====
+from fastapi import HTTPException, Depends
+from strategies.storage import save_strategy, list_strategies, get_strategy, delete_strategy, update_strategy
+from strategies.dca import DCAStrategy
+from api.dependencies import get_current_user
+
+@router.post("/strategy/dca")
+async def create_dca_strategy(
+    symbol: str,
+    amount: float,
+    frequency: str = "daily",
+    current_user: dict = Depends(get_current_user)
+):
+    """Create a new DCA strategy"""
+    try:
+        strategy = DCAStrategy(
+            uid=current_user['user_id'],
+            symbol=symbol,
+            amount=amount,
+            frequency=frequency
+        )
+        strategy_id = save_strategy(current_user['user_id'], strategy)
+        return {
+            "success": True,
+            "strategy_id": strategy_id,
+            "message": f"DCA strategy created for {symbol}"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/strategies")
+async def get_user_strategies(current_user: dict = Depends(get_current_user)):
+    """List all strategies for current user"""
+    strategies = list_strategies(current_user['user_id'])
+    return {"success": True, "strategies": strategies}
+
+@router.delete("/strategy/{strategy_id}")
+async def delete_user_strategy(
+    strategy_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete a strategy"""
+    if delete_strategy(current_user['user_id'], strategy_id):
+        return {"success": True, "message": "Strategy deleted"}
+    raise HTTPException(status_code=404, detail="Strategy not found")
+EOF
+
+# ============================================================================
+# 10. FINAL MESSAGE
+# ============================================================================
+echo ""
+echo "🎉 THOR STRATEGIES - CLEANUP COMPLETE!"
+echo "================================================"
+echo ""
+echo "✅ Fixed imports in all strategy files"
+echo "✅ Created __init__.py files"
+echo "✅ Updated bot runner with strategy commands"
+echo "✅ Added strategy requirements"
+echo "✅ Created systemd service (optional)"
+echo "✅ Installed dependencies"
+echo "✅ Added strategy API endpoints"
+echo ""
+echo "🚀 To start everything:"
+echo "  cd /srv/nova-global-keys"
+echo "  ./launch_all.sh"
+echo ""
+echo "📊 To check status:"
+echo "  pm2 status"
+echo "  pm2 logs strategy-worker"
+echo ""
+echo "🎯 New Telegram commands:"
+echo "  /strategy dca BTCUSDT 50"
+echo "  /mystrategy"
+echo "  /pause STRATEGY_ID"
+echo "  /resume STRATEGY_ID"
+echo "  /cancelstrategy STRATEGY_ID"
+echo "  /performance"
+echo ""
+echo "================================================"

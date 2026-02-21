@@ -1,0 +1,63 @@
+version: '3.8'
+services:
+  mt5-terminal:
+    image: ghcr.io/linuxserver/baseimage-kasmvnc:alpine321
+    container_name: nova-mt5-terminal
+    restart: unless-stopped
+    ports:
+      - "3000:3000"  # VNC web interface
+      - "8001:8001"  # mt5linux API port
+    environment:
+      - VNC_USER=nova
+      - VNC_PASSWORD=NovaMT5@2026
+      - MT5_ACCOUNT=${MT5_ACCOUNT}
+      - MT5_PASSWORD=${MT5_PASSWORD}
+      - MT5_SERVER=${MT5_SERVER}
+    volumes:
+      - ./config:/config
+      - ./scripts:/scripts
+      - ./logs:/var/log/mt5
+    networks:
+      - nova-mt5-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  mt5-api-bridge:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: nova-mt5-bridge
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+    depends_on:
+      - mt5-terminal
+    environment:
+      - MT5_HOST=mt5-terminal
+      - MT5_PORT=8001
+      - REDIS_URL=redis://nova-mt5-redis:6379/0
+    networks:
+      - nova-mt5-net
+    volumes:
+      - ./logs:/app/logs
+
+  redis:
+    image: redis:7-alpine
+    container_name: nova-mt5-redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    networks:
+      - nova-mt5-net
+    volumes:
+      - redis-data:/data
+
+networks:
+  nova-mt5-net:
+    driver: bridge
+
+volumes:
+  redis-data:
