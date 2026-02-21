@@ -1,0 +1,24 @@
+[0;1;32m●[0m docker.service - Docker Application Container Engine
+     Loaded: loaded (]8;;file://srv914579/usr/lib/systemd/system/docker.service/usr/lib/systemd/system/docker.service]8;;; [0;1;32menabled[0m; preset: [0;1;32menabled[0m)
+     Active: [0;1;32mactive (running)[0m since Tue 2026-02-10 13:10:50 UTC; 1 week 3 days ago
+TriggeredBy: [0;1;32m●[0m docker.socket
+       Docs: ]8;;https://docs.docker.comhttps://docs.docker.com]8;;
+   Main PID: 107930 (dockerd)
+      Tasks: 25
+     Memory: 196.0M (peak: 196.2M swap: 8.8M swap peak: 10.0M)
+        CPU: 2min 9.117s
+     CGroup: /system.slice/docker.service
+             ├─[0;38;5;245m 107930 /usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock[0m
+             ├─[0;38;5;245m3463861 /usr/bin/docker-proxy -proto tcp -host-ip 0.0.0.0 -host-port 8443 -container-ip 172.17.0.2 -container-port 443 -use-listen-fd[0m
+             └─[0;38;5;245m3896568 /usr/bin/unpigz -d -c[0m
+
+Feb 14 12:47:37 srv914579 dockerd[107930]: time="2026-02-14T12:47:37.244458188Z" level=info msg="ignoring event" container=96fcbacdfa056471f506c9040ab0ea54e3bfe4239805266d2771d75d85e3fcb4 module=libcontainerd namespace=moby topic=/tasks/delete type="*events.TaskDelete"
+Feb 14 12:48:28 srv914579 dockerd[107930]: time="2026-02-14T12:48:28.690944182Z" level=info msg="ignoring event" container=96fcbacdfa056471f506c9040ab0ea54e3bfe4239805266d2771d75d85e3fcb4 module=libcontainerd namespace=moby topic=/tasks/delete type="*events.TaskDelete"
+Feb 14 12:49:28 srv914579 dockerd[107930]: time="2026-02-14T12:49:28.951224094Z" level=info msg="ignoring event" container=96fcbacdfa056471f506c9040ab0ea54e3bfe4239805266d2771d75d85e3fcb4 module=libcontainerd namespace=moby topic=/tasks/delete type="*events.TaskDelete"
+Feb 14 12:50:29 srv914579 dockerd[107930]: time="2026-02-14T12:50:29.863384358Z" level=info msg="ignoring event" container=96fcbacdfa056471f506c9040ab0ea54e3bfe4239805266d2771d75d85e3fcb4 module=libcontainerd namespace=moby topic=/tasks/delete type="*events.TaskDelete"
+Feb 14 12:51:30 srv914579 dockerd[107930]: time="2026-02-14T12:51:30.164152128Z" level=info msg="ignoring event" container=96fcbacdfa056471f506c9040ab0ea54e3bfe4239805266d2771d75d85e3fcb4 module=libcontainerd namespace=moby topic=/tasks/delete type="*events.TaskDelete"
+Feb 14 18:37:34 srv914579 dockerd[107930]: time="2026-02-14T18:37:34.811344789Z" level=info msg="sbJoin: gwep4 ''->'6769e101cac4', gwep6 ''->''" eid=6769e101cac4 ep=mtproto-proxy net=bridge nid=abb2a5e1e460
+Feb 14 18:37:47 srv914579 dockerd[107930]: time="2026-02-14T18:37:47.160463164Z" level=info msg="sbJoin: gwep4 ''->'0d0314408778', gwep6 ''->''" eid=0d0314408778 ep=modest_goldstine net=bridge nid=abb2a5e1e460
+Feb 14 18:37:47 srv914579 dockerd[107930]: time="2026-02-14T18:37:47.160930912Z" level=warning msg="Failed to allocate port" error="Bind for 0.0.0.0:8443 failed: port is already allocated"
+Feb 14 18:37:47 srv914579 dockerd[107930]: time="2026-02-14T18:37:47.292730653Z" level=info msg="ignoring event" container=0883a1f4c1f453dfe0cfa33b91cd2a3982a1dc437fbd2539f716d2063eb42fb5 module=libcontainerd namespace=moby topic=/tasks/delete type="*events.TaskDelete"
+Feb 14 18:37:47 srv914579 dockerd[107930]: time="2026-02-14T18:37:47.334712972Z" level=error msg="Handler for POST /v1.52/containers/0883a1f4c1f453dfe0cfa33b91cd2a3982a1dc437fbd2539f716d2063eb42fb5/start returned error: failed to set up container networking: driver failed programming external connectivity on endpoint modest_goldstine (0d0314408778eac14c86f84e8859a26a7ab50c2c5090fcdb9e3f05b13baf1b64): Bind for 0.0.0.0:8443 failed: port is already allocated"

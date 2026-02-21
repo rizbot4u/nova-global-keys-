@@ -1,0 +1,35 @@
+# Environment files
+.env
+*.env
+config/secrets.yml
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs
+logs/
+*.log
+/root/.pm2/logs/*
+
+# Local development
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Docker (optional - you can version docker files separately)
+/mt5-docker/.env
+/mt5-docker/config/
+/mt5-docker/logs/
+
+# Sensitive
+**/api_keys.txt
+**/secrets.json
+**/credentials.json
