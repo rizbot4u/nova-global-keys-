@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-NOVA GLOBAL KEYS - THOR UNIFIED ENGINE v3.0 FINAL
-Complete Broker Level 3 Trading System with Strategies, Payments & P2P
-Author: Nova Global Keys | Broker: Kr000820
+NOVA GLOBAL KEYS - THOR UNIFIED ENGINE v5.0 FINAL
+Complete Broker Level 3 Trading System with ALL Bybit V5 Endpoints
+Author: Nova Global Keys | Broker: Kr000820 | Affiliate: 127146
 """
 
 import os
@@ -120,232 +120,395 @@ class RedisClient:
     
     def delete_oauth_state(self, state: str):
         self.client.delete(f"oauth:{state}")
+    
+    def get_shop_credit(self, user_id: str) -> float:
+        return float(self.client.get(f"user:{user_id}:shop_credit") or 0)
+    
+    def update_shop_credit(self, user_id: str, amount: float):
+        self.client.incrbyfloat(f"user:{user_id}:shop_credit", amount)
 
 redis_client = RedisClient()
 
 # ============================================================================
-# THOR UNIFIED ENGINE - THE HEART OF THE SYSTEM
+# THOR ENGINE - COMPLETE BYBIT V5 IMPLEMENTATION
 # ============================================================================
 
 class ThorEngine:
     """
-    Unified trading engine supporting both:
-    - Broker-level operations (using CLIENT_ID/CLIENT_SECRET)
-    - User-level operations (using user's API keys)
-    - Automatic endpoint selection (Indonesia/Testnet)
+    Complete Bybit V5 implementation with proper HMAC signatures
+    Full broker support with X-Referer header for rebates
     """
     
-    def __init__(self, use_testnet: bool = False):
-        self.client_id = settings.CLIENT_ID
-        self.client_secret = settings.CLIENT_SECRET
+    def __init__(self, api_key: str = None, api_secret: str = None):
+        self.api_key = api_key
+        self.api_secret = api_secret
         self.broker_code = settings.BROKER_CODE
+        self.affiliate_id = settings.AFFILIATE_ID
         self.recv_window = "20000"
         
-        if use_testnet:
-            self.base_url = settings.BYBIT_TESTNET
+        if settings.USE_TESTNET:
+            self.base_url = "https://api-testnet.bybit.com"
         else:
-            self.base_url = settings.BYBIT_V5
+            self.base_url = "https://api.bybit.id"  # Indonesia endpoint
         
-        self.oauth_url = settings.BYBIT_OAUTH
         self.client = httpx.AsyncClient(timeout=30.0)
-        
-        logger.info(f"⚡ Thor Engine initialized | Broker: {self.broker_code} | Endpoint: {self.base_url}")
+        logger.info(f"⚡ Thor Engine initialized | Broker: {self.broker_code}")
     
-    def _generate_signature(self, api_key: str, api_secret: str, timestamp: str, params: str = "") -> str:
-        sign_str = f"{timestamp}{api_key}{self.recv_window}{params}"
+    def _generate_signature(self, timestamp: str, params: str = "", data: dict = None) -> str:
+        """Generate HMAC SHA256 signature according to Bybit V5 specs"""
+        if not self.api_secret:
+            return ""
+        
+        if data:
+            # POST request - use JSON body (compact, no spaces)
+            body_str = json.dumps(data, separators=(',', ':'))
+            sign_str = f"{timestamp}{self.api_key}{self.recv_window}{body_str}"
+        else:
+            # GET request - use query string
+            sign_str = f"{timestamp}{self.api_key}{self.recv_window}{params}"
+        
         return hmac.new(
-            api_secret.encode('utf-8'),
+            self.api_secret.encode('utf-8'),
             sign_str.encode('utf-8'),
             hashlib.sha256
         ).hexdigest()
     
-    async def _broker_request(self, method: str, endpoint: str, params: dict = None, data: dict = None) -> Dict:
+    async def _request(self, method: str, endpoint: str, params: dict = None, data: dict = None) -> Dict:
+        """Make authenticated request to Bybit API"""
         timestamp = str(int(time.time() * 1000))
         
+        # Build query string for GET requests
+        query_string = ""
         if method == "GET" and params:
-            param_str = "&".join([f"{k}={v}" for k, v in sorted(params.items())])
-            signature = self._generate_signature(self.client_id, self.client_secret, timestamp, param_str)
-            url = f"{self.base_url}{endpoint}"
-            headers = {
-                "X-BAPI-API-KEY": self.client_id,
-                "X-BAPI-TIMESTAMP": timestamp,
-                "X-BAPI-SIGN": signature,
-                "X-BAPI-RECV-WINDOW": self.recv_window,
-                "X-BAPI-PARTNER-ID": self.broker_code,
-                "Content-Type": "application/json"
-            }
-            response = await self.client.get(url, headers=headers, params=params)
-            
-        elif data:
-            body_str = json.dumps(data)
-            signature = self._generate_signature(self.client_id, self.client_secret, timestamp, body_str)
-            url = f"{self.base_url}{endpoint}"
-            headers = {
-                "X-BAPI-API-KEY": self.client_id,
-                "X-BAPI-TIMESTAMP": timestamp,
-                "X-BAPI-SIGN": signature,
-                "X-BAPI-RECV-WINDOW": self.recv_window,
-                "X-BAPI-PARTNER-ID": self.broker_code,
-                "Content-Type": "application/json"
-            }
-            response = await self.client.post(url, headers=headers, json=data)
-        else:
-            url = f"{self.base_url}{endpoint}"
+            sorted_params = sorted(params.items())
+            query_string = "&".join([f"{k}={v}" for k, v in sorted_params])
+        
+        # Generate signature
+        signature = self._generate_signature(timestamp, query_string, data)
+        
+        # Headers - includes broker code for rebates
+        headers = {
+            "X-BAPI-API-KEY": self.api_key or "",
+            "X-BAPI-TIMESTAMP": timestamp,
+            "X-BAPI-SIGN": signature,
+            "X-BAPI-RECV-WINDOW": self.recv_window,
+            "X-Referer": self.broker_code,  # CRITICAL for broker rebates
+            "Content-Type": "application/json"
+        }
+        
+        url = f"{self.base_url}{endpoint}"
+        
+        try:
             if method == "GET":
-                response = await self.client.get(url, params=params)
+                response = await self.client.get(url, headers=headers, params=params)
             else:
-                response = await self.client.post(url, json=data)
-        
-        return response.json()
-    
-    async def broker_get_ticker(self, symbol: str = "BTCUSDT", category: str = "spot") -> Dict:
-        return await self._broker_request(
-            "GET",
-            "/market/tickers",
-            params={"category": category, "symbol": symbol}
-        )
-    
-    async def broker_get_balance(self, account_type: str = "UNIFIED") -> Dict:
-        return await self._broker_request(
-            "GET",
-            "/account/wallet-balance",
-            params={"accountType": account_type}
-        )
-    
-    async def _user_request(self, api_key: str, api_secret: str, method: str, 
-                           endpoint: str, params: dict = None, data: dict = None) -> Dict:
-        timestamp = str(int(time.time() * 1000))
-        
-        if method == "GET" and params:
-            param_str = "&".join([f"{k}={v}" for k, v in sorted(params.items())])
-            signature = self._generate_signature(api_key, api_secret, timestamp, param_str)
-            url = f"{self.base_url}{endpoint}"
-            headers = {
-                "X-BAPI-API-KEY": api_key,
-                "X-BAPI-TIMESTAMP": timestamp,
-                "X-BAPI-SIGN": signature,
-                "X-BAPI-RECV-WINDOW": self.recv_window,
-                "X-BAPI-PARTNER-ID": self.broker_code,
-                "Content-Type": "application/json"
-            }
-            response = await self.client.get(url, headers=headers, params=params)
+                response = await self.client.post(url, headers=headers, json=data)
             
-        elif data:
-            body_str = json.dumps(data)
-            signature = self._generate_signature(api_key, api_secret, timestamp, body_str)
-            url = f"{self.base_url}{endpoint}"
-            headers = {
-                "X-BAPI-API-KEY": api_key,
-                "X-BAPI-TIMESTAMP": timestamp,
-                "X-BAPI-SIGN": signature,
-                "X-BAPI-RECV-WINDOW": self.recv_window,
-                "X-BAPI-PARTNER-ID": self.broker_code,
-                "Content-Type": "application/json"
-            }
-            response = await self.client.post(url, headers=headers, json=data)
-        else:
-            return {"retCode": -1, "retMsg": "Invalid request"}
-        
-        return response.json()
+            return response.json()
+        except Exception as e:
+            logger.error(f"Request error: {e}")
+            return {"retCode": -1, "retMsg": str(e)}
     
-    async def user_get_balance(self, api_key: str, api_secret: str, account_type: str = "UNIFIED") -> Dict:
-        return await self._user_request(
-            api_key, api_secret,
-            "GET",
-            "/account/wallet-balance",
-            params={"accountType": account_type}
-        )
+    # ===== MARKET ENDPOINTS =====
     
-    async def user_place_order(self, api_key: str, api_secret: str, symbol: str, side: str, 
-                              qty: str, order_type: str = "Market", category: str = "spot") -> Dict:
+    async def get_tickers(self, category: str = "spot", symbol: str = None):
+        """Get real-time tickers"""
+        params = {"category": category}
+        if symbol:
+            params["symbol"] = symbol
+        return await self._request("GET", "/v5/market/tickers", params=params)
+    
+    async def get_orderbook(self, category: str, symbol: str, limit: int = 25):
+        """Get order book - FIXED: category has default, symbol required"""
+        params = {
+            "category": category,
+            "symbol": symbol,
+            "limit": limit
+        }
+        return await self._request("GET", "/v5/market/orderbook", params=params)
+    
+    async def get_kline(self, category: str, symbol: str, interval: str = "D", limit: int = 200):
+        """Get kline/candlestick data"""
+        params = {
+            "category": category,
+            "symbol": symbol,
+            "interval": interval,
+            "limit": limit
+        }
+        return await self._request("GET", "/v5/market/kline", params=params)
+    
+    async def get_instruments(self, category: str = "spot", symbol: str = None):
+        """Get instruments info"""
+        params = {"category": category}
+        if symbol:
+            params["symbol"] = symbol
+        return await self._request("GET", "/v5/market/instruments-info", params=params)
+    
+    async def get_server_time(self):
+        """Get Bybit server time"""
+        return await self._request("GET", "/v5/market/time")
+    
+    # ===== ACCOUNT ENDPOINTS =====
+    
+    async def get_wallet_balance(self, account_type: str = "UNIFIED", coin: str = None):
+        """Get wallet balance"""
+        params = {"accountType": account_type}
+        if coin:
+            params["coin"] = coin
+        return await self._request("GET", "/v5/account/wallet-balance", params=params)
+    
+    async def get_account_info(self):
+        """Get account info"""
+        return await self._request("GET", "/v5/account/info")
+    
+    async def get_fee_rate(self, category: str = "spot", symbol: str = None):
+        """Get fee rate"""
+        params = {"category": category}
+        if symbol:
+            params["symbol"] = symbol
+        return await self._request("GET", "/v5/account/fee-rate", params=params)
+    
+    # ===== TRADE ENDPOINTS =====
+    
+    async def place_order(self, category: str, symbol: str, side: str, order_type: str,
+                         qty: str, price: str = None, time_in_force: str = "GTC"):
+        """Place an order"""
         data = {
             "category": category,
             "symbol": symbol,
             "side": side,
             "orderType": order_type,
             "qty": qty,
-            "timeInForce": "GTC",
-            "brokerId": self.broker_code
+            "timeInForce": time_in_force,
+            "brokerId": self.broker_code  # Ensures rebates
         }
-        return await self._user_request(api_key, api_secret, "POST", "/order/create", data=data)
+        if price:
+            data["price"] = price
+        
+        return await self._request("POST", "/v5/order/create", data=data)
     
-    async def exchange_code(self, code: str) -> Dict:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{self.oauth_url}/oauth/v1/public/access_token",
-                data={
-                    "grant_type": "authorization_code",
-                    "client_id": self.client_id,
-                    "client_secret": self.client_secret,
-                    "code": code,
-                    "redirect_uri": settings.REDIRECT_URI
-                },
-                headers={
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "Referer": "https://novatradingkeys.com"
-                }
-            )
-            return response.json()
+    async def get_open_orders(self, category: str, symbol: str = None, limit: int = 50):
+        """Get open orders"""
+        params = {"category": category, "limit": limit}
+        if symbol:
+            params["symbol"] = symbol
+        return await self._request("GET", "/v5/order/realtime", params=params)
     
-    async def get_user_uid(self, access_token: str) -> str:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{self.oauth_url}/oauth/v1/resource/restrict/uid_bearer",
-                headers={"Authorization": f"Bearer {access_token}"}
-            )
-            data = response.json()
-            return str(data.get("uid", ""))
+    async def get_order_history(self, category: str, symbol: str = None, limit: int = 50):
+        """Get order history"""
+        params = {"category": category, "limit": limit}
+        if symbol:
+            params["symbol"] = symbol
+        return await self._request("GET", "/v5/order/history", params=params)
     
-    async def get_user_api_keys(self, access_token: str) -> Dict:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{self.oauth_url}/oauth/v1/resource/restrict/openapi",
-                headers={"Authorization": f"Bearer {access_token}"}
-            )
-            return response.json()
+    async def cancel_order(self, category: str, symbol: str, order_id: str = None, order_link_id: str = None):
+        """Cancel an order"""
+        data = {
+            "category": category,
+            "symbol": symbol
+        }
+        if order_id:
+            data["orderId"] = order_id
+        if order_link_id:
+            data["orderLinkId"] = order_link_id
+        
+        return await self._request("POST", "/v5/order/cancel", data=data)
+    
+    async def cancel_all_orders(self, category: str):
+        """Cancel all orders"""
+        data = {"category": category}
+        return await self._request("POST", "/v5/order/cancel-all", data=data)
+    
+    # ===== POSITION ENDPOINTS =====
+    
+    async def get_positions(self, category: str = "linear", symbol: str = None):
+        """Get positions"""
+        params = {"category": category}
+        if symbol:
+            params["symbol"] = symbol
+        return await self._request("GET", "/v5/position/list", params=params)
+    
+    async def get_closed_pnl(self, category: str, symbol: str = None, limit: int = 50):
+        """Get closed PnL"""
+        params = {"category": category, "limit": limit}
+        if symbol:
+            params["symbol"] = symbol
+        return await self._request("GET", "/v5/position/closed-pnl", params=params)
+    
+    async def set_leverage(self, category: str, symbol: str, leverage: str):
+        """Set leverage"""
+        data = {
+            "category": category,
+            "symbol": symbol,
+            "leverage": leverage
+        }
+        return await self._request("POST", "/v5/position/set-leverage", data=data)
+    
+    # ===== ASSET ENDPOINTS =====
+    
+    async def get_coin_balance(self, account_type: str = "FUND", coin: str = None, member_id: str = None):
+        """Get coin balance"""
+        params = {"accountType": account_type}
+        if coin:
+            params["coin"] = coin
+        if member_id:
+            params["memberId"] = member_id
+        return await self._request("GET", "/v5/asset/transfer/query-account-coins-balance", params=params)
+    
+    async def get_deposit_address(self, coin: str):
+        """Get deposit address"""
+        params = {"coin": coin}
+        return await self._request("GET", "/v5/asset/deposit/address", params=params)
+    
+    async def get_deposit_history(self, coin: str = None, limit: int = 50):
+        """Get deposit history"""
+        params = {"limit": limit}
+        if coin:
+            params["coin"] = coin
+        return await self._request("GET", "/v5/asset/deposit/record", params=params)
+    
+    async def get_withdraw_history(self, coin: str = None, limit: int = 50):
+        """Get withdrawal history"""
+        params = {"limit": limit}
+        if coin:
+            params["coin"] = coin
+        return await self._request("GET", "/v5/asset/withdraw/record", params=params)
+    
+    async def create_transfer(self, transfer_id: str, from_account: str, to_account: str, coin: str, amount: str):
+        """Create internal transfer"""
+        data = {
+            "transferId": transfer_id,
+            "fromAccountType": from_account,
+            "toAccountType": to_account,
+            "coin": coin,
+            "amount": amount
+        }
+        return await self._request("POST", "/v5/asset/transfer/inter-transfer", data=data)
+    
+    # ===== AFFILIATE ENDPOINTS =====
+    
+    async def get_affiliate_commission(self, limit: int = 50):
+        """Get affiliate commission"""
+        params = {"limit": limit}
+        return await self._request("GET", "/v5/affiliate/commission", params=params)
+    
+    async def get_affiliate_user_list(self, size: int = 50, page: int = 1):
+        """Get affiliate user list"""
+        params = {"size": size, "page": page}
+        return await self._request("GET", "/v5/affiliate/affiliate-user-list", params=params)
+    
+    # ===== BROKER ENDPOINTS =====
+    
+    async def create_subaccount(self, username: str, member_type: int = 1, note: str = ""):
+        """Create subaccount"""
+        data = {
+            "username": username,
+            "memberType": member_type,
+            "note": note
+        }
+        return await self._request("POST", "/v5/broker/create-sub-member", data=data)
+    
+    async def get_subaccount_list(self):
+        """Get subaccount list"""
+        return await self._request("GET", "/v5/broker/sub-member-list")
+    
+    async def set_subaccount_fee(self, sub_uid: str, fee_rate: dict):
+        """Set subaccount fee"""
+        data = {
+            "subUid": sub_uid,
+            "feeRate": fee_rate
+        }
+        return await self._request("POST", "/v5/broker/set-sub-member-fee", data=data)
+    
+    # ===== P2P ENDPOINTS =====
+    
+    async def get_p2p_balance(self, coin: str = None):
+        """Get P2P balance"""
+        params = {}
+        if coin:
+            params["coin"] = coin
+        return await self._request("GET", "/v5/p2p/balance", params=params)
+    
+    async def get_p2p_orders(self, side: str = None, status: str = None, limit: int = 50):
+        """Get P2P orders"""
+        params = {"limit": limit}
+        if side:
+            params["side"] = side
+        if status:
+            params["status"] = status
+        return await self._request("GET", "/v5/p2p/order/list", params=params)
+    
+    # ===== RFQ/OTC ENDPOINTS =====
+    
+    async def create_rfq(self, data: dict):
+        """Create RFQ"""
+        return await self._request("POST", "/v5/rfq/create", data=data)
+    
+    async def execute_rfq(self, data: dict):
+        """Execute RFQ"""
+        return await self._request("POST", "/v5/rfq/execute", data=data)
+    
+    async def get_rfq_config(self):
+        """Get RFQ config"""
+        return await self._request("GET", "/v5/rfq/config")
+    
+    # ===== HELPER METHODS =====
     
     def format_balance(self, balance_data: Dict) -> Dict:
+        """Format balance response for frontend"""
         try:
-            coins = balance_data.get('result', {}).get('list', [{}])[0].get('coin', [])
             balances = {}
             total_usd = 0
+            assets = []
             
-            for coin in coins:
-                name = coin.get('coin', '')
-                balance = float(coin.get('walletBalance', '0'))
-                usd_value = float(coin.get('usdValue', '0'))
-                
-                if balance > 0:
-                    balances[name] = {
-                        "balance": balance,
-                        "usd_value": usd_value
-                    }
-                    total_usd += usd_value
+            if balance_data.get('retCode') == 0:
+                for account in balance_data['result']['list']:
+                    for coin in account.get('coin', []):
+                        coin_name = coin.get('coin')
+                        wallet_balance = float(coin.get('walletBalance', 0))
+                        usd_value = float(coin.get('usdValue', 0))
+                        
+                        if wallet_balance > 0 or usd_value > 0:
+                            balances[coin_name] = {
+                                "balance": wallet_balance,
+                                "usd_value": usd_value
+                            }
+                            total_usd += usd_value
+                            assets.append({
+                                "coin": coin_name,
+                                "balance": wallet_balance,
+                                "usd_value": usd_value
+                            })
             
             return {
                 "success": True,
                 "balances": balances,
-                "total_usd": total_usd
+                "total_usd": total_usd,
+                "assets": assets
             }
         except Exception as e:
             return {"success": False, "error": str(e)}
     
     def format_ticker(self, ticker_data: Dict) -> Dict:
+        """Format ticker response for frontend"""
         try:
-            ticker = ticker_data.get('result', {}).get('list', [{}])[0]
-            return {
-                "success": True,
-                "symbol": ticker.get('symbol', ''),
-                "price": float(ticker.get('lastPrice', 0)),
-                "change_24h": float(ticker.get('price24hPcnt', 0)) * 100,
-                "high_24h": float(ticker.get('highPrice24h', 0)),
-                "low_24h": float(ticker.get('lowPrice24h', 0)),
-                "volume": float(ticker.get('volume24h', 0))
-            }
+            if ticker_data.get('retCode') == 0:
+                ticker = ticker_data['result']['list'][0]
+                return {
+                    "success": True,
+                    "symbol": ticker.get('symbol', ''),
+                    "price": float(ticker.get('lastPrice', 0)),
+                    "change_24h": float(ticker.get('price24hPcnt', 0)) * 100,
+                    "high_24h": float(ticker.get('highPrice24h', 0)),
+                    "low_24h": float(ticker.get('lowPrice24h', 0)),
+                    "volume": float(ticker.get('volume24h', 0))
+                }
+            return {"success": False, "error": ticker_data.get('retMsg', 'Unknown error')}
         except Exception as e:
             return {"success": False, "error": str(e)}
     
     async def close(self):
+        """Close HTTP client"""
         await self.client.aclose()
 
 # ============================================================================
@@ -357,11 +520,8 @@ class OrderRequest(BaseModel):
     side: str
     qty: float
     order_type: str = "Market"
-
-class BalanceResponse(BaseModel):
-    success: bool
-    balances: Dict
-    total_usd: float
+    category: str = "spot"
+    price: Optional[float] = None
 
 # ============================================================================
 # API DEPENDENCIES
@@ -371,13 +531,19 @@ async def get_current_user(authorization: str = Header(None)):
     if not authorization:
         raise HTTPException(status_code=401, detail="Missing authorization")
     
-    if authorization.startswith("Bearer "):
-        user_id = authorization.replace("Bearer ", "")
-    else:
-        user_id = authorization.strip()
+    user_id = authorization.replace("Bearer ", "").strip()
     
     keys = redis_client.get_user_keys(user_id)
     if not keys:
+        # Try as session ID
+        api_key = redis_client.client.get(f"user:{user_id}:api_key")
+        api_secret = redis_client.client.get(f"user:{user_id}:api_secret")
+        if api_key and api_secret:
+            return {
+                "user_id": user_id,
+                "api_key": api_key,
+                "api_secret": api_secret
+            }
         raise HTTPException(status_code=401, detail="Invalid user session")
     
     return {
@@ -391,9 +557,9 @@ async def get_current_user(authorization: str = Header(None)):
 # ============================================================================
 
 app = FastAPI(
-    title="Nova Global Keys - Thor Engine",
-    description="Complete Broker Level 3 Trading Platform",
-    version="3.0.0"
+    title="Nova Global Keys - Thor Engine v5.0",
+    description="Complete Bybit V5 Integration with Broker Level 3",
+    version="5.0.0"
 )
 
 app.add_middleware(
@@ -404,15 +570,16 @@ app.add_middleware(
 )
 
 # ============================================================================
-# API ROUTES
+# ROOT & HEALTH ENDPOINTS
 # ============================================================================
 
 @app.get("/")
 async def root():
     return {
         "name": "Nova Global Keys",
-        "version": "3.0.0",
+        "version": "5.0.0",
         "broker": settings.BROKER_CODE,
+        "affiliate": settings.AFFILIATE_ID,
         "status": "operational"
     }
 
@@ -424,6 +591,10 @@ async def health():
         "redis": redis_client.ping(),
         "timestamp": datetime.now().isoformat()
     }
+
+# ============================================================================
+# OAUTH ENDPOINTS
+# ============================================================================
 
 @app.get("/api/auth/login")
 async def auth_login():
@@ -437,18 +608,39 @@ async def auth_callback(code: str, state: str):
     
     tg_user_id = redis_client.get_oauth_state(state)
     
-    engine = ThorEngine()
-    token_data = await engine.exchange_code(code)
-    access_token = token_data.get('access_token')
-    
-    if not access_token:
-        return JSONResponse(status_code=400, content={"error": "Token exchange failed"})
-    
-    keys_data = await engine.get_user_api_keys(access_token)
-    result = keys_data.get("result", {})
-    api_key = result.get("api_key")
-    api_secret = result.get("api_secret")
-    uid = await engine.get_user_uid(access_token)
+    async with httpx.AsyncClient() as client:
+        token_resp = await client.post(
+            f"{settings.BYBIT_OAUTH}/oauth/v1/public/access_token",
+            data={
+                "grant_type": "authorization_code",
+                "client_id": settings.CLIENT_ID,
+                "client_secret": settings.CLIENT_SECRET,
+                "code": code,
+                "redirect_uri": settings.REDIRECT_URI
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"}
+        )
+        token_data = token_resp.json()
+        access_token = token_data.get('access_token')
+        
+        if not access_token:
+            return JSONResponse(status_code=400, content={"error": "Token exchange failed"})
+        
+        # Get API keys
+        keys_resp = await client.get(
+            f"{settings.BYBIT_OAUTH}/oauth/v1/resource/restrict/openapi",
+            headers={"Authorization": f"Bearer {access_token}"}
+        )
+        keys_data = keys_resp.json()
+        api_key = keys_data.get("result", {}).get("api_key")
+        api_secret = keys_data.get("result", {}).get("api_secret")
+        
+        # Get UID
+        uid_resp = await client.get(
+            f"{settings.BYBIT_OAUTH}/oauth/v1/resource/restrict/uid_bearer",
+            headers={"Authorization": f"Bearer {access_token}"}
+        )
+        uid = uid_resp.json().get("uid", "")
     
     if tg_user_id:
         redis_client.store_user_keys(tg_user_id, api_key, api_secret, uid)
@@ -462,126 +654,508 @@ async def auth_callback(code: str, state: str):
         session_id = uuid.uuid4().hex
         redis_client.store_user_keys(session_id, api_key, api_secret, uid)
         return RedirectResponse(f"{settings.FRONTEND_URL}/dashboard?session={session_id}")
-# ===== DASHBOARD API ENDPOINTS =====
+
+@app.get("/api/auth/google")
+async def google_login():
+    state = uuid.uuid4().hex[:8]
+    redis_client.client.setex(f"google_oauth:{state}", 600, "pending")
+    
+    url = (
+        "https://accounts.google.com/o/oauth2/v2/auth"
+        "?client_id=650988179236-k55rkljpmg3m1gaak4sjmojsm8psv798.apps.googleusercontent.com"
+        "&response_type=code"
+        "&scope=email%20profile"
+        "&redirect_uri=https://novatradingkeys.com/api/auth/callback/google"
+        f"&state={state}"
+    )
+    return RedirectResponse(url)
+
+@app.get("/api/auth/callback/google")
+async def google_callback(code: str, state: str = None):
+    logger.info("Google OAuth callback received")
+    
+    if state and not redis_client.client.get(f"google_oauth:{state}"):
+        logger.warning(f"Invalid state: {state}")
+    elif state:
+        redis_client.client.delete(f"google_oauth:{state}")
+    
+    async with httpx.AsyncClient() as client:
+        token_resp = await client.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "code": code,
+                "client_id": "650988179236-k55rkljpmg3m1gaak4sjmojsm8psv798.apps.googleusercontent.com",
+                "client_secret": "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",
+                "redirect_uri": "https://novatradingkeys.com/api/auth/callback/google",
+                "grant_type": "authorization_code"
+            }
+        )
+        
+        if token_resp.status_code != 200:
+            return JSONResponse(status_code=400, content={"error": "Token exchange failed"})
+        
+        token_data = token_resp.json()
+        access_token = token_data.get('access_token')
+        
+        user_resp = await client.get(
+            "https://www.googleapis.com/oauth2/v2/userinfo",
+            headers={"Authorization": f"Bearer {access_token}"}
+        )
+        user_data = user_resp.json()
+        uid = user_data.get('id')
+        email = user_data.get('email')
+        name = user_data.get('name')
+        
+        session_id = uuid.uuid4().hex
+        redis_client.client.setex(
+            f"session:{session_id}",
+            86400,
+            str({"uid": uid, "email": email, "name": name, "provider": "google"})
+        )
+        return RedirectResponse(f"{settings.FRONTEND_URL}/dashboard?session={session_id}&provider=google")
+
+# ============================================================================
+# MARKET DATA ENDPOINTS (Public)
+# ============================================================================
+
+@app.get("/api/market/tickers")
+async def get_tickers(category: str = "spot", symbol: str = None):
+    """Get real-time tickers"""
+    engine = ThorEngine()
+    result = await engine.get_tickers(category=category, symbol=symbol)
+    return result
+
+@app.get("/api/market/orderbook")
+async def get_orderbook(category: str, symbol: str, limit: int = 25):
+    """Get order book"""
+    engine = ThorEngine()
+    result = await engine.get_orderbook(category=category, symbol=symbol, limit=limit)
+    return result
+
+@app.get("/api/market/kline")
+async def get_kline(category: str, symbol: str, interval: str = "D", limit: int = 200):
+    """Get kline/candlestick data"""
+    engine = ThorEngine()
+    result = await engine.get_kline(category=category, symbol=symbol, interval=interval, limit=limit)
+    return result
+
+@app.get("/api/market/instruments")
+async def get_instruments(category: str = "spot", symbol: str = None):
+    """Get instruments info"""
+    engine = ThorEngine()
+    result = await engine.get_instruments(category=category, symbol=symbol)
+    return result
+
+@app.get("/api/market/time")
+async def get_server_time():
+    """Get Bybit server time"""
+    engine = ThorEngine()
+    result = await engine.get_server_time()
+    return result
+
+# ============================================================================
+# ACCOUNT ENDPOINTS (Requires Auth)
+# ============================================================================
+
+@app.get("/api/account/wallet-balance")
+async def get_wallet_balance(
+    current_user: dict = Depends(get_current_user),
+    account_type: str = "UNIFIED",
+    coin: str = None
+):
+    """Get wallet balance"""
+    engine = ThorEngine(current_user['api_key'], current_user['api_secret'])
+    result = await engine.get_wallet_balance(account_type=account_type, coin=coin)
+    
+    if result.get('retCode') == 0:
+        formatted = engine.format_balance(result)
+        return {"success": True, **formatted}
+    return {"success": False, "error": result.get('retMsg')}
+
+@app.get("/api/account/info")
+async def get_account_info(current_user: dict = Depends(get_current_user)):
+    """Get account info"""
+    engine = ThorEngine(current_user['api_key'], current_user['api_secret'])
+    result = await engine.get_account_info()
+    return result
+
+@app.get("/api/account/fee-rate")
+async def get_fee_rate(
+    current_user: dict = Depends(get_current_user),
+    category: str = "spot",
+    symbol: str = None
+):
+    """Get fee rate"""
+    engine = ThorEngine(current_user['api_key'], current_user['api_secret'])
+    result = await engine.get_fee_rate(category=category, symbol=symbol)
+    return result
+
+# ============================================================================
+# TRADE ENDPOINTS (Requires Auth)
+# ============================================================================
+
+@app.post("/api/trade/order")
+async def place_order(
+    order: OrderRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Place an order"""
+    engine = ThorEngine(current_user['api_key'], current_user['api_secret'])
+    result = await engine.place_order(
+        category=order.category,
+        symbol=order.symbol,
+        side=order.side,
+        order_type=order.order_type,
+        qty=str(order.qty),
+        price=str(order.price) if order.price else None
+    )
+    return result
+
+@app.get("/api/trade/open-orders")
+async def get_open_orders(
+    current_user: dict = Depends(get_current_user),
+    category: str = "spot",
+    symbol: str = None,
+    limit: int = 50
+):
+    """Get open orders"""
+    engine = ThorEngine(current_user['api_key'], current_user['api_secret'])
+    result = await engine.get_open_orders(category=category, symbol=symbol, limit=limit)
+    return result
+
+@app.get("/api/trade/order-history")
+async def get_order_history(
+    current_user: dict = Depends(get_current_user),
+    category: str = "spot",
+    symbol: str = None,
+    limit: int = 50
+):
+    """Get order history"""
+    engine = ThorEngine(current_user['api_key'], current_user['api_secret'])
+    result = await engine.get_order_history(category=category, symbol=symbol, limit=limit)
+    return result
+
+@app.post("/api/trade/cancel-order")
+async def cancel_order(
+    data: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Cancel an order"""
+    engine = ThorEngine(current_user['api_key'], current_user['api_secret'])
+    result = await engine.cancel_order(
+        category=data['category'],
+        symbol=data['symbol'],
+        order_id=data.get('order_id'),
+        order_link_id=data.get('order_link_id')
+    )
+    return result
+
+@app.post("/api/trade/cancel-all")
+async def cancel_all_orders(
+    data: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Cancel all orders"""
+    engine = ThorEngine(current_user['api_key'], current_user['api_secret'])
+    result = await engine.cancel_all_orders(category=data.get('category', 'spot'))
+    return result
+
+# ============================================================================
+# POSITION ENDPOINTS (Requires Auth)
+# ============================================================================
+
+@app.get("/api/positions/list")
+async def get_positions(
+    current_user: dict = Depends(get_current_user),
+    category: str = "linear",
+    symbol: str = None
+):
+    """Get positions"""
+    engine = ThorEngine(current_user['api_key'], current_user['api_secret'])
+    result = await engine.get_positions(category=category, symbol=symbol)
+    return result
+
+@app.get("/api/positions/closed-pnl")
+async def get_closed_pnl(
+    current_user: dict = Depends(get_current_user),
+    category: str = "linear",
+    symbol: str = None,
+    limit: int = 50
+):
+    """Get closed PnL"""
+    engine = ThorEngine(current_user['api_key'], current_user['api_secret'])
+    result = await engine.get_closed_pnl(category=category, symbol=symbol, limit=limit)
+    return result
+
+@app.post("/api/positions/leverage")
+async def set_leverage(
+    data: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Set leverage"""
+    engine = ThorEngine(current_user['api_key'], current_user['api_secret'])
+    result = await engine.set_leverage(
+        category=data['category'],
+        symbol=data['symbol'],
+        leverage=str(data['leverage'])
+    )
+    return result
+
+# ============================================================================
+# ASSET ENDPOINTS (Requires Auth)
+# ============================================================================
+
+@app.get("/api/asset/coin-balance")
+async def get_coin_balance(
+    current_user: dict = Depends(get_current_user),
+    account_type: str = "FUND",
+    coin: str = None
+):
+    """Get coin balance"""
+    engine = ThorEngine(current_user['api_key'], current_user['api_secret'])
+    result = await engine.get_coin_balance(account_type=account_type, coin=coin)
+    return result
+
+@app.get("/api/asset/deposit/address")
+async def get_deposit_address(
+    current_user: dict = Depends(get_current_user),
+    coin: str = None
+):
+    """Get deposit address"""
+    if not coin:
+        raise HTTPException(status_code=400, detail="coin parameter required")
+    engine = ThorEngine(current_user['api_key'], current_user['api_secret'])
+    result = await engine.get_deposit_address(coin=coin)
+    return result
+
+@app.get("/api/asset/deposit/history")
+async def get_deposit_history(
+    current_user: dict = Depends(get_current_user),
+    coin: str = None,
+    limit: int = 50
+):
+    """Get deposit history"""
+    engine = ThorEngine(current_user['api_key'], current_user['api_secret'])
+    result = await engine.get_deposit_history(coin=coin, limit=limit)
+    return result
+
+@app.get("/api/asset/withdraw/history")
+async def get_withdraw_history(
+    current_user: dict = Depends(get_current_user),
+    coin: str = None,
+    limit: int = 50
+):
+    """Get withdrawal history"""
+    engine = ThorEngine(current_user['api_key'], current_user['api_secret'])
+    result = await engine.get_withdraw_history(coin=coin, limit=limit)
+    return result
+
+@app.post("/api/asset/transfer")
+async def create_transfer(
+    data: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Create internal transfer"""
+    engine = ThorEngine(current_user['api_key'], current_user['api_secret'])
+    result = await engine.create_transfer(
+        transfer_id=data.get('transfer_id', uuid.uuid4().hex),
+        from_account=data['from_account'],
+        to_account=data['to_account'],
+        coin=data['coin'],
+        amount=str(data['amount'])
+    )
+    return result
+
+# ============================================================================
+# AFFILIATE / REBATE ENDPOINTS (Master API Key)
+# ============================================================================
+
+@app.get("/api/affiliate/commission")
+async def get_affiliate_commission(limit: int = 50):
+    """Get affiliate commission"""
+    engine = ThorEngine(settings.MASTER_API_KEY, settings.MASTER_API_SECRET)
+    result = await engine.get_affiliate_commission(limit=limit)
+    return result
+
+@app.get("/api/affiliate/user-list")
+async def get_affiliate_user_list(size: int = 50, page: int = 1):
+    """Get affiliate user list"""
+    engine = ThorEngine(settings.MASTER_API_KEY, settings.MASTER_API_SECRET)
+    result = await engine.get_affiliate_user_list(size=size, page=page)
+    return result
+
+# ============================================================================
+# BROKER ENDPOINTS (Master API Key)
+# ============================================================================
+
+@app.post("/api/broker/subaccount/create")
+async def create_subaccount(data: dict):
+    """Create subaccount"""
+    engine = ThorEngine(settings.MASTER_API_KEY, settings.MASTER_API_SECRET)
+    result = await engine.create_subaccount(
+        username=data['username'],
+        member_type=data.get('member_type', 1),
+        note=data.get('note', '')
+    )
+    return result
+
+@app.get("/api/broker/subaccount/list")
+async def list_subaccounts():
+    """List subaccounts"""
+    engine = ThorEngine(settings.MASTER_API_KEY, settings.MASTER_API_SECRET)
+    result = await engine.get_subaccount_list()
+    return result
+
+@app.post("/api/broker/subaccount/fee")
+async def set_subaccount_fee(data: dict):
+    """Set subaccount fee"""
+    engine = ThorEngine(settings.MASTER_API_KEY, settings.MASTER_API_SECRET)
+    result = await engine.set_subaccount_fee(
+        sub_uid=data['sub_uid'],
+        fee_rate=data['fee_rate']
+    )
+    return result
+
+# ============================================================================
+# P2P ENDPOINTS (Requires Auth)
+# ============================================================================
+
+@app.get("/api/p2p/balance")
+async def get_p2p_balance(
+    current_user: dict = Depends(get_current_user),
+    coin: str = None
+):
+    """Get P2P balance"""
+    engine = ThorEngine(current_user['api_key'], current_user['api_secret'])
+    result = await engine.get_p2p_balance(coin=coin)
+    return result
+
+@app.get("/api/p2p/orders")
+async def get_p2p_orders(
+    current_user: dict = Depends(get_current_user),
+    side: str = None,
+    status: str = None,
+    limit: int = 50
+):
+    """Get P2P orders"""
+    engine = ThorEngine(current_user['api_key'], current_user['api_secret'])
+    result = await engine.get_p2p_orders(side=side, status=status, limit=limit)
+    return result
+
+# ============================================================================
+# RFQ/OTC ENDPOINTS (Requires Auth)
+# ============================================================================
+
+@app.post("/api/rfq/create")
+async def create_rfq(data: dict, current_user: dict = Depends(get_current_user)):
+    """Create RFQ"""
+    engine = ThorEngine(current_user['api_key'], current_user['api_secret'])
+    result = await engine.create_rfq(data=data)
+    return result
+
+@app.post("/api/rfq/execute")
+async def execute_rfq(data: dict, current_user: dict = Depends(get_current_user)):
+    """Execute RFQ"""
+    engine = ThorEngine(current_user['api_key'], current_user['api_secret'])
+    result = await engine.execute_rfq(data=data)
+    return result
+
+@app.get("/api/rfq/config")
+async def get_rfq_config(current_user: dict = Depends(get_current_user)):
+    """Get RFQ config"""
+    engine = ThorEngine(current_user['api_key'], current_user['api_secret'])
+    result = await engine.get_rfq_config()
+    return result
+
+# ============================================================================
+# V1 COMPATIBILITY ENDPOINTS (For existing frontend)
+# ============================================================================
 
 @app.get("/api/v1/user/info")
 async def get_user_info(current_user: dict = Depends(get_current_user)):
-    """Get basic user info for header"""
+    """Get user info"""
     return {
         "uid": current_user['user_id'],
-        "authenticated": True
+        "authenticated": True,
+        "broker": settings.BROKER_CODE
     }
 
-@app.post("/api/v1/bots/{bot_id}/{action}")
-async def control_bot(bot_id: str, action: str, current_user: dict = Depends(get_current_user)):
-    """Control bot (start/pause/stop)"""
-    from strategies.storage import get_strategy, update_strategy
+@app.get("/api/v1/balance")
+async def get_balance_v1(current_user: dict = Depends(get_current_user)):
+    """Legacy balance endpoint"""
+    engine = ThorEngine(current_user['api_key'], current_user['api_secret'])
+    result = await engine.get_wallet_balance()
     
-    strategy_data = get_strategy(current_user['user_id'], bot_id)
-    if not strategy_data:
-        return {"success": False, "error": "Bot not found"}
+    if result.get('retCode') == 0:
+        formatted = engine.format_balance(result)
+        # Add shop credit
+        shop_credit = redis_client.get_shop_credit(current_user['user_id'])
+        if shop_credit > 0:
+            formatted['total_usd'] += shop_credit
+            formatted['balances']["SHOP"] = {
+                "balance": shop_credit,
+                "usd_value": shop_credit
+            }
+        return {"success": True, "total_usd": formatted['total_usd'], "balances": formatted['balances']}
+    return {"success": False, "error": result.get('retMsg')}
+
+@app.get("/api/v1/price/{symbol}")
+async def get_price_v1(symbol: str):
+    """Legacy price endpoint"""
+    engine = ThorEngine()
+    result = await engine.get_tickers(symbol=symbol)
+    return engine.format_ticker(result)
+
+@app.get("/api/v1/orderbook/{symbol}")
+async def get_orderbook_v1(symbol: str, category: str = "spot", limit: int = 25):
+    """Legacy orderbook endpoint"""
+    engine = ThorEngine()
+    result = await engine.get_orderbook(category=category, symbol=symbol, limit=limit)
+    return result
+
+@app.get("/api/v1/pnl")
+async def get_pnl_v1(current_user: dict = Depends(get_current_user)):
+    """Legacy PnL endpoint"""
+    engine = ThorEngine(current_user['api_key'], current_user['api_secret'])
     
-    if action == 'pause':
-        strategy_data['paused'] = True
-    elif action == 'start':
-        strategy_data['paused'] = False
-    elif action == 'stop':
-        from strategies.storage import delete_strategy
-        delete_strategy(current_user['user_id'], bot_id)
-        return {"success": True, "message": "Bot stopped"}
+    positions = await engine.get_positions()
+    closed = await engine.get_closed_pnl(category="linear")
     
-    update_strategy(current_user['user_id'], bot_id, strategy_data)
-    return {"success": True}
-@app.get("/api/v1/strategies")
-async def get_strategies(current_user: dict = Depends(get_current_user)):
-    """Get user's active strategies"""
-    try:
-        from strategies.storage import list_strategies
-        strategies = list_strategies(current_user['user_id'])
-        return {"success": True, "strategies": strategies}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    total_unrealized = 0
+    total_realized = 0
+    
+    if positions.get('retCode') == 0:
+        for pos in positions.get('result', {}).get('list', []):
+            total_unrealized += float(pos.get('unrealisedPnl', 0))
+    
+    if closed.get('retCode') == 0:
+        for item in closed.get('result', {}).get('list', []):
+            total_realized += float(item.get('closedPnl', 0))
+    
+    return {
+        "success": True,
+        "total_pnl": round(total_realized + total_unrealized, 2),
+        "realized_pnl": round(total_realized, 2),
+        "unrealized_pnl": round(total_unrealized, 2)
+    }
 
-@app.get("/api/v1/p2p/orders")
-async def get_p2p_orders(current_user: dict = Depends(get_current_user)):
-    """Get user's P2P orders"""
-    try:
-        # Fetch from Redis - in production, would call Bybit P2P API
-        keys = redis_client.client.keys(f"p2p_order:{current_user['user_id']}:*")
-        orders = []
-        for key in keys:
-            data = redis_client.client.get(key)
-            if data:
-                try:
-                    orders.append(eval(data))
-                except:
-                    pass
-        return {"success": True, "orders": orders}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-@app.get("/api/v1/payments")
-async def get_payments(current_user: dict = Depends(get_current_user)):
-    """Get user's payment history"""
-    try:
-        keys = redis_client.client.keys(f"payment:*")
-        payments = []
-        for key in keys:
-            data = redis_client.client.get(key)
-            if data and current_user['user_id'] in data:
-                try:
-                    payments.append(eval(data))
-                except:
-                    pass
-        
-        credit = float(redis_client.client.get(f"user:{current_user['user_id']}:credit") or 0)
-        return {"success": True, "payments": payments[-10:], "credit": credit}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-@app.get("/api/v1/performance")
-async def get_performance(current_user: dict = Depends(get_current_user)):
-    """Get user's trading performance"""
-    try:
-        from strategies.storage import list_strategies
-        strategies = list_strategies(current_user['user_id'])
-        
-        total_trades = 0
-        total_pnl = 0.0
-        
-        for s in strategies:
-            total_trades += s.get('trades', 0)
-            total_pnl += s.get('pnl', 0.0)
-        
-        return {
-            "success": True,
-            "total_trades": total_trades,
-            "total_pnl": total_pnl,
-            "strategies": strategies
-        }
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-@app.get("/api/v1/leaderboard")
-async def get_leaderboard():
-    """Get global leaderboard"""
-    try:
-        # Example: fetch top 10 from Redis sorted set
-        leaders = redis_client.client.zrevrange("leaderboard:pnl", 0, 9, withscores=True)
-        return {"success": True, "leaders": [
-            {"user": u.decode(), "pnl": score} for u, score in leaders
-        ]}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-# ===== BOT MANAGEMENT ENDPOINTS =====
+@app.get("/api/v1/orders")
+async def get_orders_v1(current_user: dict = Depends(get_current_user)):
+    """Legacy orders endpoint"""
+    engine = ThorEngine(current_user['api_key'], current_user['api_secret'])
+    result = await engine.get_order_history(category="spot")
+    
+    if result.get('retCode') == 0:
+        return {"success": True, "orders": result.get('result', {}).get('list', [])}
+    return {"success": False, "orders": []}
 
 @app.get("/api/v1/bots")
-async def get_bots(current_user: dict = Depends(get_current_user)):
+async def get_bots_v1(current_user: dict = Depends(get_current_user)):
     """Get user's trading bots"""
     try:
         from strategies.storage import list_strategies
         strategies = list_strategies(current_user['user_id'])
         
-        # Format for frontend
         bots = []
         for s in strategies:
             bots.append({
@@ -591,31 +1165,20 @@ async def get_bots(current_user: dict = Depends(get_current_user)):
                 "amount": s.get('amount', 0),
                 "status": "running" if not s.get('paused', False) else "paused",
                 "trades": s.get('performance', {}).get('trades', 0),
-                "pnl": s.get('performance', {}).get('pnl', 0),
-                "interval": s.get('config', {}).get('interval_hours', 24) * 60
+                "pnl": s.get('performance', {}).get('pnl', 0)
             })
         
         return {"success": True, "bots": bots}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-@app.get("/api/v1/orders")
-async def get_orders(current_user: dict = Depends(get_current_user)):
-    """Get user's recent orders"""
-    try:
-        # For now, return empty list (will be populated by real trades)
-        return {"success": True, "orders": []}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
 @app.post("/api/v1/bots/create")
-async def create_bot(request: dict, current_user: dict = Depends(get_current_user)):
+async def create_bot_v1(request: dict, current_user: dict = Depends(get_current_user)):
     """Create a new trading bot"""
     try:
         from strategies.dca import DCAStrategy
         from strategies.storage import save_strategy
         
-        bot_type = request.get('type', 'dca')
         symbol = request.get('symbol', 'BTCUSDT')
         amount = float(request.get('amount', 100))
         interval = int(request.get('interval', 60))
@@ -629,12 +1192,11 @@ async def create_bot(request: dict, current_user: dict = Depends(get_current_use
         
         strategy_id = save_strategy(current_user['user_id'], strategy)
         return {"success": True, "bot_id": strategy_id}
-        
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 @app.post("/api/v1/bots/{bot_id}/{action}")
-async def control_bot(bot_id: str, action: str, current_user: dict = Depends(get_current_user)):
+async def control_bot_v1(bot_id: str, action: str, current_user: dict = Depends(get_current_user)):
     """Control bot (start/pause/stop)"""
     try:
         from strategies.storage import get_strategy, update_strategy, delete_strategy
@@ -656,157 +1218,69 @@ async def control_bot(bot_id: str, action: str, current_user: dict = Depends(get
             return {"success": True, "message": "Bot stopped"}
         else:
             return {"success": False, "error": "Invalid action"}
-            
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-# ===== GOOGLE OAUTH ROUTES =====
-
-@app.get("/api/auth/google")
-async def google_login():
-    """Redirect to Google OAuth"""
-    state = uuid.uuid4().hex[:8]
-    # Store state in Redis to verify later
-    redis_client.client.setex(f"google_oauth:{state}", 600, "pending")
-    
-    url = (
-        "https://accounts.google.com/o/oauth2/v2/auth"
-        "?client_id=650988179236-k55rkljpmg3m1gaak4sjmojsm8psv798.apps.googleusercontent.com"
-        "&response_type=code"
-        "&scope=email%20profile"
-        "&redirect_uri=https://novatradingkeys.com/api/auth/callback/google"
-        f"&state={state}"
-    )
-    return RedirectResponse(url)
-
-@app.get("/api/auth/callback/google")
-async def google_callback(code: str, state: str = None):  # Make state optional
-    logger.info(f"Google OAuth callback received")
-    
-    # Optional: verify state if provided
-    if state and not redis_client.client.get(f"google_oauth:{state}"):
-        logger.warning(f"Invalid state: {state}")
-    elif state:
-        redis_client.client.delete(f"google_oauth:{state}")
-    
-    # Continue with token exchange...
-    async with httpx.AsyncClient() as client:
-        token_resp = await client.post(
-            "https://oauth2.googleapis.com/token",
-            data={
-                "code": code,
-                "client_id": "650988179236-k55rkljpmg3m1gaak4sjmojsm8psv798.apps.googleusercontent.com",
-                "client_secret": "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",
-                "redirect_uri": "https://novatradingkeys.com/api/auth/callback/google",
-                "grant_type": "authorization_code"
-            }
-        )
-        # ... rest of the code
+@app.get("/api/v1/strategies")
+async def get_strategies_v1(current_user: dict = Depends(get_current_user)):
+    """Get user's strategies"""
+    try:
+        from strategies.storage import list_strategies
+        strategies = list_strategies(current_user['user_id'])
         
-        if token_resp.status_code != 200:
-            return JSONResponse(status_code=400, content={"error": "Token exchange failed"})
+        # Try to get real PnL
+        engine = ThorEngine(current_user['api_key'], current_user['api_secret'])
+        positions = await engine.get_positions()
         
-        token_data = token_resp.json()
-        access_token = token_data.get('access_token')
+        pnl_cache = {}
+        if positions.get('retCode') == 0:
+            for pos in positions.get('result', {}).get('list', []):
+                symbol = pos['symbol']
+                pnl_cache[symbol] = pnl_cache.get(symbol, 0) + float(pos.get('unrealisedPnl', 0))
         
-        # Get user info
-        user_resp = await client.get(
-            "https://www.googleapis.com/oauth2/v2/userinfo",
-            headers={"Authorization": f"Bearer {access_token}"}
-        )
-        
-        user_data = user_resp.json()
-        uid = user_data.get('id')
-        email = user_data.get('email')
-        name = user_data.get('name')
-        
-        # Check if from Telegram (you can implement this)
-        tg_user_id = None  # Implement if needed
-        
-        if tg_user_id:
-            # Store for Telegram user
-            redis_client.store_user_keys(tg_user_id, "google", access_token, uid)
-            return JSONResponse(content={
-                "success": True,
-                "message": "Google account connected to Telegram!",
-                "uid": uid,
-                "email": email
+        bots = []
+        for s in strategies:
+            symbol = s.get('symbol', 'BTCUSDT')
+            bots.append({
+                "id": s.get('strategy_id', ''),
+                "type": s.get('type', 'dca'),
+                "symbol": symbol,
+                "amount": s.get('amount', 0),
+                "status": "running" if not s.get('paused', False) else "paused",
+                "trades": s.get('performance', {}).get('trades', 0),
+                "pnl": round(pnl_cache.get(symbol, 0), 2)
             })
-        else:
-            # Web user - generate session
-            session_id = uuid.uuid4().hex
-            redis_client.client.setex(
-                f"session:{session_id}", 
-                86400, 
-                str({"uid": uid, "email": email, "name": name, "provider": "google"})
-            )
-            return RedirectResponse(f"{settings.FRONTEND_URL}/dashboard?session={session_id}&provider=google")
-@app.get("/api/v1/price/{symbol}")
-async def get_price(symbol: str):
-    engine = ThorEngine()
-    result = await engine.broker_get_ticker(symbol)
-    
-    if result.get('retCode') == 0:
-        formatted = engine.format_ticker(result)
-        return formatted
-    else:
-        raise HTTPException(status_code=400, detail=result.get('retMsg', 'Unknown error'))
+        
+        return {"success": True, "strategies": bots}
+    except Exception as e:
+        logger.error(f"Strategies error: {e}")
+        return {"success": False, "error": str(e)}
 
-@app.get("/api/v1/balance")
-async def get_balance(current_user: dict = Depends(get_current_user)):
-    engine = ThorEngine()
-    result = await engine.user_get_balance(
-        current_user['api_key'],
-        current_user['api_secret']
-    )
-    
-    if result.get('retCode') == 0:
-        formatted = engine.format_balance(result)
-        return {
-            "success": True,
-            "user_id": current_user['user_id'],
-            "balances": formatted['balances'],
-            "total_usd": formatted['total_usd']
-        }
-    else:
-        raise HTTPException(status_code=400, detail=result.get('retMsg', 'Unknown error'))
+@app.get("/api/v1/p2p/orders")
+async def get_p2p_orders_v1(current_user: dict = Depends(get_current_user)):
+    """Get P2P orders (Redis fallback)"""
+    try:
+        keys = redis_client.client.keys(f"p2p_order:{current_user['user_id']}:*")
+        orders = []
+        for key in keys:
+            data = redis_client.client.get(key)
+            if data:
+                try:
+                    orders.append(eval(data))
+                except:
+                    pass
+        return {"success": True, "orders": orders}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
-@app.post("/api/v1/order")
-async def place_order(order: OrderRequest, current_user: dict = Depends(get_current_user)):
-    engine = ThorEngine()
-    
-    ticker = await engine.broker_get_ticker(order.symbol)
-    if ticker.get('retCode') != 0:
-        raise HTTPException(status_code=400, detail="Could not fetch price")
-    
-    price_data = engine.format_ticker(ticker)
-    if not price_data['success']:
-        raise HTTPException(status_code=400, detail="Invalid price data")
-    
-    qty = str(round(order.qty / price_data['price'], 4))
-    
-    result = await engine.user_place_order(
-        current_user['api_key'],
-        current_user['api_secret'],
-        order.symbol,
-        order.side,
-        qty,
-        order.order_type
-    )
-    
-    if result.get('retCode') == 0:
-        return {
-            "success": True,
-            "order_id": result.get('result', {}).get('orderId'),
-            "symbol": order.symbol,
-            "side": order.side,
-            "amount_usd": order.qty,
-            "quantity": float(qty),
-            "price": price_data['price'],
-            "user_id": current_user['user_id']
-        }
-    else:
-        raise HTTPException(status_code=400, detail=result.get('retMsg', 'Order failed'))
+@app.get("/api/v1/payments")
+async def get_payments_v1(current_user: dict = Depends(get_current_user)):
+    """Get payment history"""
+    try:
+        credit = redis_client.get_shop_credit(current_user['user_id'])
+        return {"success": True, "credit": credit}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 # ============================================================================
 # COMMAND MODULES IMPORT STATUS
@@ -980,7 +1454,7 @@ class TelegramBot:
                         for coin, details in data['balances'].items():
                             reply += f"• *{coin}:* {details['balance']:.4f} (${details['usd_value']:,.2f})\n"
                         
-                        credit = float(redis_client.client.get(f"user:{user_id}:credit") or 0)
+                        credit = redis_client.get_shop_credit(user_id)
                         if credit > 0:
                             reply += f"\n*Shop Credit:* ${credit:.2f}"
                         
@@ -1034,12 +1508,13 @@ class TelegramBot:
                         qty = round(amount / current_price, 4)
                         
                         order_resp = await client.post(
-                            f"http://localhost:{settings.PORT}/api/v1/order",
+                            f"http://localhost:{settings.PORT}/api/trade/order",
                             json={
                                 "symbol": symbol,
                                 "side": side,
                                 "qty": qty,
-                                "order_type": "Market"
+                                "order_type": "Market",
+                                "category": "spot"
                             },
                             headers={"Authorization": user_id}
                         )
@@ -1047,18 +1522,17 @@ class TelegramBot:
                 
                 result = asyncio.run(execute())
                 
-                if result.get('success'):
+                if result.get('retCode') == 0:
                     reply = f"""
 ✅ *Order Executed!*
 
 *{side}* ${amount} of {symbol}
-*Quantity:* {result.get('quantity', 0):.4f}
-*Price:* ${result.get('price', 0):,.2f}
-*Order ID:* `{result.get('order_id', 'N/A')}`
+*Quantity:* {result.get('result', {}).get('qty', 0)}
+*Order ID:* `{result.get('result', {}).get('orderId', 'N/A')}`
                     """
                     self.bot.reply_to(message, reply, parse_mode="Markdown")
                 else:
-                    self.bot.reply_to(message, f"❌ Trade failed: {result.get('error', 'Unknown error')}")
+                    self.bot.reply_to(message, f"❌ Trade failed: {result.get('retMsg', 'Unknown error')}")
             
             threading.Thread(target=execute_and_reply).start()
 
@@ -1104,14 +1578,15 @@ class TelegramBot:
 
 def main():
     logger.info("=" * 60)
-    logger.info("🚀 NOVA GLOBAL KEYS - THOR UNIFIED ENGINE v3.0 FINAL")
+    logger.info("🚀 NOVA GLOBAL KEYS - THOR UNIFIED ENGINE v5.0 FINAL")
     logger.info("=" * 60)
     logger.info(f"Broker: {settings.BROKER_CODE}")
-    logger.info(f"Endpoint: {settings.BYBIT_V5}")
+    logger.info(f"Affiliate: {settings.AFFILIATE_ID}")
     logger.info(f"Redis: {'✅' if redis_client.ping() else '❌'}")
     logger.info(f"Strategy Commands: {'✅' if STRATEGY_COMMANDS_AVAILABLE else '❌'}")
     logger.info(f"Payment Commands: {'✅' if PAYMENT_COMMANDS_AVAILABLE else '❌'}")
     logger.info(f"P2P Commands: {'✅' if P2P_COMMANDS_AVAILABLE else '❌'}")
+    logger.info("✅ All Bybit V5 endpoints available with broker headers")
     logger.info("=" * 60)
     
     telegram_bot = TelegramBot()
