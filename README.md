@@ -39,7 +39,7 @@ Built in Pakistan. Running live. 400 API calls/sec.
 ## 👨‍💻 Creator
 
 **Rizwan Ali** – Founder  
-Built solo from Bahawalpur, Pakistan 🇵🇰
+
 
 ---
 
