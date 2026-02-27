@@ -130,6 +130,10 @@ class RedisClient:
 redis_client = RedisClient()
 
 # ============================================================================
+# REQUEST TRACKING MIDDLEWARE
+# ============================================================================
+
+# ============================================================================
 # THOR ENGINE - COMPLETE BYBIT V5 IMPLEMENTATION
 # ============================================================================
 
@@ -420,23 +424,39 @@ class ThorEngine:
         }
         return await self._request("POST", "/v5/broker/set-sub-member-fee", data=data)
     
-    # ===== P2P ENDPOINTS =====
+
+# ===== P2P ENDPOINTS =====
     
     async def get_p2p_balance(self, coin: str = None):
         """Get P2P balance"""
         params = {}
         if coin:
             params["coin"] = coin
-        return await self._request("GET", "/v5/p2p/balance", params=params)
-    
+        logger.info(f"🔍 P2P Request params: {params}")
+        result = await self._request("GET", "/v5/p2p/balance", params=params)
+        logger.info(f"🔍 P2P Response raw: {result}")
+        return result
+
     async def get_p2p_orders(self, side: str = None, status: str = None, limit: int = 50):
         """Get P2P orders"""
-        params = {"limit": limit}
-        if side:
-            params["side"] = side
-        if status:
-            params["status"] = status
-        return await self._request("GET", "/v5/p2p/order/list", params=params)
+        try:
+            params = {"limit": limit}
+            if side:
+                params["side"] = side
+            if status:
+                params["status"] = status
+                
+            logger.info(f"🔍 Making P2P orders request with params: {params}")
+            
+            # Use the correct P2P endpoint
+            result = await self._request("GET", "/v5/p2p/order/list", params=params)
+            
+            logger.info(f"🔍 P2P orders response: {result}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"❌ Error in get_p2p_orders: {e}")
+            return {"retCode": -1, "retMsg": str(e)}
     
     # ===== RFQ/OTC ENDPOINTS =====
     
@@ -568,6 +588,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ============================================================================
+# REQUEST TRACKING MIDDLEWARE
+# ============================================================================
+
+@app.middleware("http")
+async def track_api_requests(request: Request, call_next):
+    """Track total API requests for monitoring dashboard"""
+    response = await call_next(request)
+    try:
+        redis_client.client.incr("stats:main_api:total_requests")
+    except:
+        pass
+    return response
 
 # ============================================================================
 # ROOT & HEALTH ENDPOINTS
@@ -1037,11 +1071,30 @@ async def get_p2p_orders(
     status: str = None,
     limit: int = 50
 ):
-    """Get P2P orders"""
-    engine = ThorEngine(current_user['api_key'], current_user['api_secret'])
-    result = await engine.get_p2p_orders(side=side, status=status, limit=limit)
-    return result
-
+    """Get P2P orders with debug"""
+    try:
+        logger.info(f"🔍 P2P orders request for user: {current_user['user_id']}")
+        logger.info(f"🔍 Params: side={side}, status={status}, limit={limit}")
+        
+        engine = ThorEngine(current_user['api_key'], current_user['api_secret'])
+        
+        # Log the keys being used (first few chars only for security)
+        logger.info(f"🔍 Using API key: {current_user['api_key'][:5]}...")
+        
+        result = await engine.get_p2p_orders(side=side, status=status, limit=limit)
+        
+        logger.info(f"🔍 P2P response received")
+        logger.info(f"🔍 Response status: {result.get('retCode')}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"❌ P2P orders error: {str(e)}")
+        logger.exception("Full traceback:")
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e), "detail": "Internal Server Error"}
+        )
 # ============================================================================
 # RFQ/OTC ENDPOINTS (Requires Auth)
 # ============================================================================
@@ -1256,22 +1309,6 @@ async def get_strategies_v1(current_user: dict = Depends(get_current_user)):
         logger.error(f"Strategies error: {e}")
         return {"success": False, "error": str(e)}
 
-@app.get("/api/v1/p2p/orders")
-async def get_p2p_orders_v1(current_user: dict = Depends(get_current_user)):
-    """Get P2P orders (Redis fallback)"""
-    try:
-        keys = redis_client.client.keys(f"p2p_order:{current_user['user_id']}:*")
-        orders = []
-        for key in keys:
-            data = redis_client.client.get(key)
-            if data:
-                try:
-                    orders.append(eval(data))
-                except:
-                    pass
-        return {"success": True, "orders": orders}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
 
 @app.get("/api/v1/payments")
 async def get_payments_v1(current_user: dict = Depends(get_current_user)):
