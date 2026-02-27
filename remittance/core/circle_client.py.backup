@@ -1,0 +1,252 @@
+"""Circle API Client - Direct integration without broken package"""
+import os
+import httpx
+import json
+import logging
+from typing import Dict, Optional, List
+from datetime import datetime
+
+logger = logging.getLogger("circle-client")
+
+class CircleClient:
+    """Direct Circle API client (no broken dependencies)"""
+    
+    def __init__(self, api_key: str = None):
+        self.api_key = api_key or os.getenv("CIRCLE_API_KEY")
+        self.base_url = "https://api.circle.com/v1"
+        self.client = httpx.AsyncClient(timeout=30.0)
+        
+        if not self.api_key:
+            logger.warning("⚠️ CIRCLE_API_KEY not set")
+    
+    async def create_wallet(self, user_id: str, blockchain: str = "ETH") -> Dict:
+        """Create a new wallet for user"""
+        try:
+            response = await self.client.post(
+                f"{self.base_url}/wallets",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                json={
+                    "userId": user_id,
+                    "blockchain": blockchain,
+                    "description": f"NOVA User Wallet - {user_id}"
+                }
+            )
+            return response.json()
+        except Exception as e:
+            logger.error(f"Wallet creation failed: {e}")
+            return {"error": str(e)}
+    
+    async def get_wallet(self, wallet_id: str) -> Dict:
+        """Get wallet details"""
+        try:
+            response = await self.client.get(
+                f"{self.base_url}/wallets/{wallet_id}",
+                headers={"Authorization": f"Bearer {self.api_key}"}
+            )
+            return response.json()
+        except Exception as e:
+            logger.error(f"Failed to get wallet: {e}")
+            return {"error": str(e)}
+    
+    async def transfer(self, from_wallet: str, to_address: str, amount: float,
+                      currency: str = "USD", chain: str = "ETH") -> Dict:
+        """Transfer funds"""
+        try:
+            response = await self.client.post(
+                f"{self.base_url}/transfers",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                json={
+                    "source": {"type": "wallet", "id": from_wallet_id
+
+cat > remittance/core/circle_client.py << 'EOF'
+"""Circle API Client - Direct integration without broken package"""
+import os
+import httpx
+import json
+import logging
+from typing import Dict, Optional, List
+from datetime import datetime
+
+logger = logging.getLogger("circle-client")
+
+class CircleClient:
+    """Direct Circle API client (no broken dependencies)"""
+    
+    def __init__(self, api_key: str = None):
+        self.api_key = api_key or os.getenv("CIRCLE_API_KEY")
+        self.base_url = "https://api.circle.com/v1"
+        self.client = httpx.AsyncClient(timeout=30.0)
+        
+        if not self.api_key:
+            logger.warning("⚠️ CIRCLE_API_KEY not set")
+    
+    async def create_wallet(self, user_id: str, blockchain: str = "ETH") -> Dict:
+        """Create a new wallet for user"""
+        try:
+            response = await self.client.post(
+                f"{self.base_url}/wallets",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                json={
+                    "userId": user_id,
+                    "blockchain": blockchain,
+                    "description": f"NOVA User Wallet - {user_id}"
+                }
+            )
+            return response.json()
+        except Exception as e:
+            logger.error(f"Wallet creation failed: {e}")
+            return {"error": str(e)}
+    
+    async def get_wallet(self, wallet_id: str) -> Dict:
+        """Get wallet details"""
+        try:
+            response = await self.client.get(
+                f"{self.base_url}/wallets/{wallet_id}",
+                headers={"Authorization": f"Bearer {self.api_key}"}
+            )
+            return response.json()
+        except Exception as e:
+            logger.error(f"Failed to get wallet: {e}")
+            return {"error": str(e)}
+    
+    async def transfer(self, from_wallet: str, to_address: str, amount: float,
+                      currency: str = "USD", chain: str = "ETH") -> Dict:
+        """Transfer funds"""
+        try:
+            response = await self.client.post(
+                f"{self.base_url}/transfers",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                json={
+                    "source": {"type": "wallet", "id": from_wallet_idallet},
+                    "destination": {"type": "blockchain", "address": to_address},
+                    "amount": {"currency": currency, "amount": str(amount)},
+                    "chain": chain
+                }
+            )
+            return response.json()
+        except Exception as e:
+            logger.error(f"Transfer failed: {e}")
+            return {"error": str(e)}
+    
+    async def get_transaction(self, tx_id: str) -> Dict:
+        """Get transaction status"""
+        try:
+            response = await self.client.get(
+                f"{self.base_url}/transfers/{tx_id}",
+                headers={"Authorization": f"Bearer {self.api_key}"}
+            )
+            return response.json()
+        except Exception as e:
+            logger.error(f"Failed to get transaction: {e}")
+            return {"error": str(e)}
+    
+    async def get_balance(self, wallet_id: str) -> float:
+        """Get wallet balance"""
+        try:
+            wallet = await self.get_wallet(wallet_id)
+            balances = wallet.get("balances", [])
+            for balance in balances:
+                if balance.get("currency") == "USD":
+                    return float(balance.get("amount", 0))
+            return 0.0
+        except Exception as e:
+            logger.error(f"Failed to get balance: {e}")
+            return 0.0
+EOFcat > remittance/core/engine.py << 'EOF'
+"""NOVA Remittance Core Engine"""
+import os
+import json
+import asyncio
+import logging
+from datetime import datetime
+from typing import Dict, List, Optional
+
+from remittance.core.circle_client import CircleClient
+from remittance.core.fbo import FBOAccountManager
+
+logger = logging.getLogger("nova-remit")
+
+class RemittanceEngine:
+    """Core remittance processing engine"""
+    
+    def __init__(self):
+        self.circle = CircleClient()
+        self.fbo = FBOAccountManager()
+        
+    async def create_wallet(self, user_id: str, blockchain: str = "ETH") -> Dict:
+        """Create a Circle wallet for user"""
+        result = await self.circle.create_wallet(user_id, blockchain)
+        
+        if "error" not in result:
+            # Store wallet ID in Redis for user
+            wallet_id = result.get("walletId") or result.get("id")
+            if wallet_id:
+                import redis
+                r = redis.Redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
+                r.set(f"user:{user_id}:circle_wallet", wallet_id)
+                logger.info(f"✅ Created wallet {wallet_id} for user {user_id}")
+                
+                # Create FBO ledger for customer
+                await self.fbo.create_customer_ledger(user_id)
+                
+                return {"success": True, "wallet_id": wallet_id, "data": result}
+        
+        logger.error(f"❌ Wallet creation failed: {result.get('error')}")
+        return {"success": False, "error": result.get('error', 'Unknown error')}
+    
+    async def send_cross_chain(self, sender_id: str, recipient_address: str, 
+                               amount: float, source_chain: str = "ETH", 
+                               dest_chain: str = "ETH") -> Dict:
+        """Send USDC across different blockchains"""
+        import redis
+        r = redis.Redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
+        
+        # Get user's wallet ID
+        wallet_id = r.get(f"user:{sender_id}:circle_wallet")
+        if not wallet_id:
+            return {"success": False, "error": "No wallet found. Create one first."}
+        
+        # Check FBO balance
+        balance = await self.fbo.get_customer_balance(sender_id)
+        if balance["balance"] < amount:
+            return {"success": False, "error": "Insufficient balance"}
+        
+        # Execute transfer
+        result = await self.circle.transfer(
+            from_wallet=wallet_id,
+            to_address=recipient_address,
+            amount=amount,
+            chain=source_chain
+        )
+        
+        if "error" not in result:
+            # Debit FBO balance
+            tx_id = result.get("id", f"tx_{datetime.now().timestamp()}")
+            await self.fbo.debit_customer(
+                user_id=sender_id,
+                amount=amount,
+                reference=f"send_{tx_id}"
+            )
+            logger.info(f"✅ Sent ${amount} to {recipient_address}")
+            return {"success": True, "transaction_id": tx_id, "data": result}
+        
+        logger.error(f"❌ Send failed: {result.get('error')}")
+        return {"success": False, "error": result.get('error')}
+    
+    async def get_wallet_balance(self, user_id: str) -> float:
+        """Get user's wallet balance"""
+        import redis
+        r = redis.Redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
+        
+        wallet_id = r.get(f"user:{user_id}:circle_wallet")
+        if not wallet_id:
+            return 0.0
+        
+        return await self.circle.get_balance(wallet_id)
+    
+    async def get_transaction_status(self, tx_id: str) -> Dict:
+        """Track transaction in real-time"""
+        result = await self.circle.get_transaction(tx_id)
+        if "error" not in result:
+            return {"success": True, "status": result.get("status"), "data": result}
+        return {"success": False, "error": result.get("error")}

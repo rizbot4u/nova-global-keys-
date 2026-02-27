@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>NOVA Remittance Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #111; color: #fff; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header { text-align: center; margin-bottom: 40px; }
+        .card { background: #1a1a1a; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+        .balance { font-size: 48px; color: #00ff88; }
+        .button { background: #00ff88; color: #000; padding: 10px 20px; border-radius: 5px; 
+                  text-decoration: none; display: inline-block; margin: 5px; }
+        .tx-list { background: #222; padding: 10px; border-radius: 5px; }
+        .success { color: #00ff88; }
+        .error { color: #ff4444; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>⚡ NOVA REMITTANCE</h1>
+            <p>Broker: Kr000820 | Affiliate: 127146</p>
+        </div>
+
+        <div class="card">
+            <h2>Your Balance</h2>
+            <div class="balance" id="balance">Loading...</div>
+            <button class="button" onclick="refreshBalance()">↻ Refresh</button>
+            <button class="button" onclick="showSendForm()">📤 Send Money</button>
+        </div>
+
+        <div class="card">
+            <h2>Recent Transactions</h2>
+            <div id="transactions" class="tx-list">Loading...</div>
+        </div>
+
+        <div class="card">
+            <h2>Quick Actions</h2>
+            <button class="button" onclick="location.href='/remit/batch'">📦 Batch Payout</button>
+            <button class="button" onclick="location.href='/remit/kyc'">🔐 Verify KYC</button>
+            <button class="button" onclick="location.href='http://31.97.220.195:8081'">📊 System Status</button>
+        </div>
+    </div>
+
+    <script>
+        async function refreshBalance() {
+            const response = await fetch('/api/remit/balance');
+            const data = await response.json();
+            document.getElementById('balance').textContent = `$${data.balance.balance.toFixed(2)} ${data.balance.currency}`;
+        }
+        
+        refreshBalance();
+        setInterval(refreshBalance, 30000);  // Refresh every 30 seconds
+        
+        function showSendForm() {
+            const amount = prompt("Enter amount to send (USDC):");
+            if (amount) {
+                const address = prompt("Enter recipient address:");
+                if (address) {
+                    fetch('/api/remit/send', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            recipient_address: address,
+                            amount: parseFloat(amount)
+                        })
+                    })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.success) {
+                            alert(`✅ Sent! Transaction ID: ${data.transaction.id}`);
+                            refreshBalance();
+                        } else {
+                            alert(`❌ Failed: ${data.error || 'Unknown error'}`);
+                        }
+                    });
+                }
+            }
+        }
+    </script>
+</body>
+</html>
