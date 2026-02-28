@@ -11,7 +11,8 @@ import redis
 import json
 
 # Redis connection
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+# Use the same Redis password as your other services
+REDIS_URL = os.getenv("REDIS_URL", "redis://default:NovaGlobal2026@localhost:6379/0")
 redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 
 # Simple list to keep the last 20 logs
@@ -40,8 +41,7 @@ state = ThorState()
 async def lifespan(app: FastAPI):
     state.start_time = datetime.datetime.now()
     state.status = "operational"
-    add_log("🚀 Dashboard initialized - ready for activity")
-    add_log("🚀 Thor Engine Singleton Started")
+    add_log("🚀 Thor Engine Singleton Started - Dashboard Live")
     print(f"⚡ Thor Engine Singleton Started at {state.start_time}")
     yield
     add_log("🛑 Thor Engine Singleton Shutting Down")
@@ -67,19 +67,10 @@ async def count_requests(request: Request, call_next):
 async def log_requests_to_dashboard(request: Request, call_next):
     """Middleware to log all requests to the dashboard stream"""
     start_time = time.time()
-    
-    # Process the request
     response = await call_next(request)
-    
-    # Calculate duration
     duration = round(time.time() - start_time, 3)
-    
-    # Create the "Investor View" log message
     log_msg = f"{request.method} {request.url.path} | Status: {response.status_code} | {duration}s"
-    
-    # Push to SSE stream
     add_log(log_msg)
-    
     return response
 
 @app.get("/api/health")
@@ -87,7 +78,6 @@ async def health_check():
     cpu_percent = psutil.cpu_percent(interval=1)
     memory = psutil.virtual_memory()
     
-    # Track main API calls from Redis
     main_api_requests = 0
     try:
         main_req = redis_client.get("stats:main_api:total_requests")
@@ -140,14 +130,13 @@ async def health_check():
 async def stream_logs():
     """Server-Sent Events stream for live logs"""
     async def event_generator():
-        last_index = len(logs_cache)
+        last_index = 0
         while True:
             if len(logs_cache) > last_index:
-                # Send all new logs
                 for i in range(last_index, len(logs_cache)):
                     yield f"data: {logs_cache[i]}\n\n"
                 last_index = len(logs_cache)
-            await asyncio.sleep(0.5)  # Check every half second
+            await asyncio.sleep(0.5)
     
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
@@ -172,7 +161,6 @@ async def root():
     except:
         pass
     
-    # Get main API requests from Redis
     main_api_requests = 0
     try:
         main_req = redis_client.get("stats:main_api:total_requests")
@@ -184,6 +172,9 @@ async def root():
     total_req = f"{state.request_count:,}"
     main_api_fmt = f"{main_api_requests:,}"
     
+    # Add a test log to verify streaming works
+    add_log(f"Dashboard viewed - Main API: {main_api_fmt}")
+
     html = f'''
     <!DOCTYPE html>
     <html lang="en">
@@ -379,7 +370,6 @@ async def root():
                 color: white;
             }}
             
-            /* Terminal Log Window */
             .log-container {{
                 background: #0a0a0a;
                 color: #00ff00;
@@ -418,15 +408,9 @@ async def root():
             }}
             
             @keyframes pulse {{
-                0% {{
-                    opacity: 1;
-                }}
-                50% {{
-                    opacity: 0.3;
-                }}
-                100% {{
-                    opacity: 1;
-                }}
+                0% {{ opacity: 1; }}
+                50% {{ opacity: 0.3; }}
+                100% {{ opacity: 1; }}
             }}
         </style>
     </head>
@@ -450,19 +434,17 @@ async def root():
                     <div class="highlight">{main_api_fmt}</div>
                     <div class="card-label">Total API calls to port 8080</div>
                 </div>
-
                 <div class="card">
                     <div class="card-title">Singleton Requests</div>
                     <div class="card-value">{total_req}</div>
                     <div class="card-label">Calls to this dashboard</div>
                 </div>
-
                 <div class="card">
                     <div class="card-title">Active Sessions</div>
                     <div class="card-value">{active_sessions}</div>
                     <div class="card-label">Connected users</div>
                     <div style="margin-top: 20px;">
-                        <span class="broker-badge">Redis: {"✅ Connected" if redis_ok else "❌ Disconnected"}</span>
+                        <span class="broker-badge">Redis: {'✅ Connected' if redis_ok else '❌ Disconnected'}</span>
                     </div>
                 </div>
             </div>
@@ -484,7 +466,6 @@ async def root():
                         <div class="status-fill" style="width: {memory.percent}%; background: linear-gradient(90deg, #10b981, #3b82f6);"></div>
                     </div>
                 </div>
-
                 <div class="card">
                     <div class="card-title">Recent Errors</div>
                     <ul class="endpoint-list">
@@ -510,27 +491,24 @@ async def root():
             </div>
         </div>
 
-        <script>
-            const evtSource = new EventSource("/api/stream-logs");
-            const logWindow = document.getElementById("log-window");
+<script>
+    const evtSource = new EventSource("/api/stream-logs");
+    const logWindow = document.getElementById("log-window");
 
-            evtSource.onmessage = function(event) {{{{
-                const newElement = document.createElement("div");
-                newElement.textContent = event.data;
-                logWindow.prepend(newElement);
+    evtSource.onmessage = function(event) {{
+        const newElement = document.createElement("div");
+        newElement.textContent = event.data;
+        logWindow.prepend(newElement);
 
-                if (logWindow.children.length > 30) {{{{
-                    logWindow.removeChild(logWindow.lastChild);
-                }}
-            }};
+        if (logWindow.children.length > 30) {{
+            logWindow.removeChild(logWindow.lastChild);
+        }}
+    }};
 
-            evtSource.onerror = function() {{{{
-                const errorElement = document.createElement("div");
-                errorElement.textContent = "[ERROR] Disconnected from log stream";
-                errorElement.style.color = "#ef4444";
-                logWindow.prepend(errorElement);
-            }};
-        </script>
+    evtSource.onerror = function() {{
+        console.log("EventSource error - reconnecting...");
+    }};
+</script>
     </body>
     </html>
     '''

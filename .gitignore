@@ -1,35 +1,58 @@
-# Environment files
-.env
-*.env
-config/secrets.yml
-
-# Python cache
+# Python
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+env/
+.env
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
 .pytest_cache/
 .coverage
 htmlcov/
-
-# Logs
-logs/
+.tox/
+.mypy_cache/
+.dmypy.json
+dmypy.json
 *.log
-/root/.pm2/logs/*
 
-# Local development
-.idea/
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
 .vscode/
+.idea/
 *.swp
 *.swo
 *~
 
-# Docker (optional - you can version docker files separately)
-/mt5-docker/.env
-/mt5-docker/config/
-/mt5-docker/logs/
+# OS
+.DS_Store
+Thumbs.db
 
-# Sensitive
-**/api_keys.txt
-**/secrets.json
-**/credentials.json
+# Logs
+logs/
+*.log
+
+# Backups
+backups/
+*.backup
+*.backup_*
+
+# PM2
+pm2-*.log
+.pm2/
+
+# Redis
+dump.rdb
+
+# Temporary
+tmp/
+temp/
+*.tmp

@@ -3,7 +3,12 @@ import asyncio
 import importlib
 import logging
 import datetime
+import sys
+import os
 from typing import Dict, Any
+
+# Add parent directory to path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.redis_client import redis_client
 from core.broker_engine import NovaBrokerEngine
@@ -12,7 +17,11 @@ from strategies.storage import list_strategies, update_strategy, get_all_user_id
 # Alias for compatibility
 ThorEngine = NovaBrokerEngine
 
-logging.basicConfig(level=logging.INFO)
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger("strategy-worker")
 
 class StrategyWorker:
