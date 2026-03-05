@@ -3,7 +3,7 @@
 # Run: chmod +x test_all_endpoints_complete.sh && ./test_all_endpoints_complete.sh
 
 SESSION="3b2369a578c04c81a17975861ed08948"
-BASE_URL="http://31.97.220.195:8080"
+BASE_URL="http://31.97.220.195:8081"
 HEADER="authorization: $SESSION"
 COUNT=1
 TOTAL=53  # Total endpoints to test

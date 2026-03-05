@@ -1,0 +1,22 @@
+    # Add this endpoint to user/main.py
+    @app.get("/exchanges/connected")
+    async def get_connected_exchanges(current_user: dict = Depends(get_current_user)):
+        """Get list of exchanges user has connected"""
+        db = SessionLocal()
+        try:
+            keys = db.query(ExchangeKey).filter(
+                ExchangeKey.user_id == current_user["user_id"],
+                ExchangeKey.is_active == True
+            ).all()
+            
+            exchanges = []
+            for key in keys:
+                exchanges.append({
+                    "exchange": key.exchange_name,
+                    "nickname": key.nickname,
+                    "last_used": key.last_used.isoformat() if key.last_used else None
+                })
+            
+            return {"exchanges": exchanges}
+        finally:
+            db.close()

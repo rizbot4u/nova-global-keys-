@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: nova
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: gateway
+  template:
+    metadata:
+      labels:
+        app: gateway
+    spec:
+      containers:
+      - name: gateway
+        image: novaglobal/gateway:latest
+        ports:
+        - containerPort: 8081
+        env:
+        - name: REDIS_HOST
+          value: redis
+        - name: AUTH_SERVICE_URL
+          value: http://auth:8001
+        - name: USER_SERVICE_URL
+          value: http://user:8002
+        - name: MARKET_SERVICE_URL
+          value: http://market:8003
+        - name: TRADE_SERVICE_URL
+          value: http://trade:8004
+        - name: P2P_SERVICE_URL
+          value: http://p2p:8005
+        - name: BROKER_SERVICE_URL
+          value: http://broker:8006
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8081
+          initialDelaySeconds: 30
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  namespace: nova
+spec:
+  ports:
+  - port: 8081
+    targetPort: 8081
+  selector:
+    app: gateway
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nova-ingress
+  namespace: nova
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+  - host: api.novatradingkeys.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: gateway
+            port:
+              number: 8081

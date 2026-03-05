@@ -2,57 +2,24 @@
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
-.Python
 venv/
-ENV/
 env/
+.venv/
 .env
-.venv
-pip-log.txt
-pip-delete-this-directory.txt
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
-.mypy_cache/
-.dmypy.json
-dmypy.json
-*.log
-
-# Environment
-.env
-.env.local
-.env.*.local
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Logs
+.env.*
+!.env.example
+config/env/*.env
+!config/env/*.env.example
+*.db
+*.sqlite
+*.sqlite3
 logs/
 *.log
-
-# Backups
-backups/
-*.backup
-*.backup_*
-
-# PM2
-pm2-*.log
 .pm2/
-
-# Redis
-dump.rdb
-
-# Temporary
-tmp/
-temp/
-*.tmp
+node_modules/
+.next/
+.DS_Store
+*.key
+*.pem
+secrets/
+backups/
