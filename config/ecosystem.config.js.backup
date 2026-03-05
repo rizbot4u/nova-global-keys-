@@ -1,0 +1,67 @@
+module.exports = {
+  apps: [
+    {
+      name: "nova-thor",
+      script: "thor_engine.py",
+      interpreter: "python3",
+      cwd: "/home/nova/nova-global-keys-",
+      autorestart: true,
+      watch: false,
+      max_restarts: 10,
+      min_uptime: "10s",
+      env: {
+        NODE_ENV: "production",
+        PYTHONUNBUFFERED: "1"
+      },
+      error_file: "/home/nova/nova-global-keys-/logs/thor-error.log",
+      out_file: "/home/nova/nova-global-keys-/logs/thor-out.log"
+    },
+    {
+      name: "nova-worker",
+      script: "workers/strategy_runner.py",
+      interpreter: "python3",
+      cwd: "/home/nova/nova-global-keys-",
+      autorestart: true,
+      watch: false,
+      max_restarts: 10,
+      min_uptime: "10s",
+      env: {
+        NODE_ENV: "production",
+        PYTHONUNBUFFERED: "1"
+      },
+      error_file: "/home/nova/nova-global-keys-/logs/worker-error.log",
+      out_file: "/home/nova/nova-global-keys-/logs/worker-out.log"
+    },
+    {
+      name: "nova-signal",
+      script: "/home/nova/nova-global-keys-/signals/signal_bot.py",
+      interpreter: "/home/nova/nova-global-keys-/venv/bin/python3",
+      cwd: "/home/nova/nova-global-keys-",
+      autorestart: true,
+      watch: false,
+      max_restarts: 10,
+      min_uptime: "10s",
+      env: {
+        NODE_ENV: "production",
+        PYTHONUNBUFFERED: "1"
+      },
+      error_file: "/home/nova/nova-global-keys-/logs/signal-error.log",
+      out_file: "/home/nova/nova-global-keys-/logs/signal-out.log"
+    }
+  ]
+};
+  ,
+    {
+      name: 'nova-remit',
+      script: '/home/nova/nova-global-keys-/remittance/api/server.py',
+      interpreter: '/home/nova/nova-global-keys-/venv/bin/python3',
+      cwd: '/home/nova/nova-global-keys-',
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '300M',
+      error_file: '/home/nova/nova-global-keys-/logs/remit-error.log',
+      out_file: '/home/nova/nova-global-keys-/logs/remit-out.log',
+      time: true
+  }
+]
+}

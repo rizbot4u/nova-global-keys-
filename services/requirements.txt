@@ -1,0 +1,17 @@
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+httpx==0.25.1
+redis==5.0.1
+sqlalchemy==2.0.23
+python-dotenv==1.0.0
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.3.0
+pyjwt==2.8.0
+bcrypt==4.0.1
+pydantic==2.5.0
+pydantic-settings==2.1.0
+pyTelegramBotAPI==4.14.0
+# Exchange libraries (optional - uncomment as needed)
+# ccxt==4.1.22
+# python-binance==1.0.19
+# kucoin-python==2.2.0

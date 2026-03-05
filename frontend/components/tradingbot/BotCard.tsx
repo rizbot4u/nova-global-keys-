@@ -1,13 +1,34 @@
 import React from 'react';
 import { motion } from 'framer-motion';
+import { useRouter } from 'next/navigation';
 
 const BotCard = ({ bot, index }) => {
+  const router = useRouter();
+
+  const handleActivateBot = () => {
+    // Check if user is logged in
+    const session = localStorage.getItem('nova_session');
+    
+    if (!session) {
+      router.push('/');
+      return;
+    }
+    
+    // Store selected bot
+    localStorage.setItem('selected_bot', JSON.stringify({
+      id: bot.id,
+      name: bot.name,
+      category: bot.category,
+      performance: bot.performance,
+      description: bot.description
+    }));
+    
+    // Navigate to dashboard
+    router.push('/dashboard');
+  };
+
   const cardVariants = {
-    hidden: { 
-      y: 40,
-      opacity: 0,
-      scale: 0.95
-    },
+    hidden: { y: 40, opacity: 0, scale: 0.95 },
     visible: {
       y: 0,
       opacity: 1,
@@ -22,21 +43,17 @@ const BotCard = ({ bot, index }) => {
   return (
     <motion.div
       variants={cardVariants}
-      whileHover={{ 
-        scale: 1.02,
-        y: -6,
-        transition: { duration: 0.2 }
-      }}
+      whileHover={{ scale: 1.02, y: -6, transition: { duration: 0.2 } }}
       className="group relative"
       layout
     >
-      {/* Glowing background effect */}
+      {/* Glowing background */}
       <motion.div
         className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-cyan-500/5 rounded-xl sm:rounded-2xl blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"
         whileHover={{ scale: 1.03 }}
         transition={{ duration: 0.2 }}
       />
-      
+
       {/* Status badge */}
       <div className="absolute -top-1 -right-1 sm:-top-2 sm:-right-2 z-10">
         <span className={`px-2 sm:px-3 py-1 rounded-full text-xs font-semibold ${
@@ -47,7 +64,7 @@ const BotCard = ({ bot, index }) => {
           {bot.status}
         </span>
       </div>
-      
+
       {/* Card content */}
       <div className="relative bg-slate-800/40 backdrop-blur-sm border border-slate-700/50 rounded-xl sm:rounded-2xl p-4 sm:p-6 lg:p-8 h-full group-hover:border-blue-500/30 transition-all duration-300">
         {/* Icon and performance */}
@@ -58,10 +75,8 @@ const BotCard = ({ bot, index }) => {
           >
             <div className="w-12 h-12 sm:w-14 sm:h-14 lg:w-16 lg:h-16 bg-slate-700/50 rounded-lg sm:rounded-xl flex items-center justify-center group-hover:bg-slate-600/50 transition-colors duration-200">
               <motion.div
-                animate={{ 
-                  rotateZ: [0, 3, -3, 0],
-                }}
-                transition={{ 
+                animate={{ rotateZ: [0, 3, -3, 0] }}
+                transition={{
                   duration: 3,
                   repeat: Infinity,
                   ease: "easeInOut"
@@ -76,7 +91,7 @@ const BotCard = ({ bot, index }) => {
               </motion.div>
             </div>
           </motion.div>
-          
+
           <div className="text-right">
             <p className="text-xs text-slate-400 mb-1">Performance</p>
             <p className="text-base sm:text-lg font-bold text-green-400">{bot.performance}</p>
@@ -108,37 +123,23 @@ const BotCard = ({ bot, index }) => {
           {bot.description}
         </motion.p>
 
-        {/* Action button */}
+        {/* ACTIVATE BUTTON */}
         <motion.button
+          onClick={handleActivateBot}
           className="w-full bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white font-semibold py-2.5 sm:py-3 px-4 sm:px-6 rounded-lg sm:rounded-xl transition-all duration-200 group-hover:shadow-lg group-hover:shadow-blue-500/25 text-sm sm:text-base"
           whileHover={{ scale: 1.01 }}
           whileTap={{ scale: 0.98 }}
           transition={{ duration: 0.15 }}
         >
-          Configure Bot
+          Activate Bot
         </motion.button>
 
-        {/* Bottom accent line */}
+        {/* Bottom accent */}
         <motion.div
           className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-500/50 to-cyan-500/50 rounded-full"
           initial={{ scaleX: 0.3, opacity: 0.5 }}
           whileHover={{ scaleX: 1, opacity: 1 }}
           transition={{ duration: 0.2 }}
-        />
-
-        {/* Decorative elements */}
-        <motion.div
-          className="absolute top-3 sm:top-4 right-12 sm:right-16 w-1.5 h-1.5 sm:w-2 sm:h-2 bg-blue-500/40 rounded-full"
-          animate={{ 
-            scale: [1, 1.4, 1],
-            opacity: [0.4, 0.8, 0.4]
-          }}
-          transition={{ 
-            duration: 2.5,
-            repeat: Infinity,
-            ease: "easeInOut",
-            delay: index * 0.15
-          }}
         />
       </div>
     </motion.div>

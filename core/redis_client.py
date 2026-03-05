@@ -19,7 +19,7 @@ class RedisClient:
         if REDIS_AVAILABLE:
             try:
                 self.client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
-                self.client.ping()  # Test connection
+                self.client.ping()
                 print("✅ Redis connected")
             except:
                 print("⚠️ Redis connection failed - using mock client")
@@ -51,6 +51,28 @@ class RedisClient:
             except:
                 return False
         return False
+
+    # >>>>>>> MOVE THIS METHOD INSIDE THE CLASS <<<<<<<
+    def store_user_keys(self, user_id: str, api_key: str, api_secret: str, uid: str = None):
+        try:
+            import logging
+            logger = logging.getLogger("nova-thor")
+            logger.info(f"📝 Storing keys for user: {user_id}")
+            logger.info(f"API Key length: {len(api_key) if api_key else 0}")
+            logger.info(f"API Secret length: {len(api_secret) if api_secret else 0}")
+            
+            pipe = self.client.pipeline()
+            pipe.set(f"user:{user_id}:api_key", api_key)
+            pipe.set(f"user:{user_id}:api_secret", api_secret)
+            if uid:
+                pipe.set(f"user:{user_id}:uid", uid)
+            result = pipe.execute()
+            
+            logger.info(f"✅ Redis pipeline result: {result}")
+            logger.info(f"✅ Stored keys for user {user_id}")
+        except Exception as e:
+            logger.error(f"❌ Failed to store keys: {e}")
+            raise
 
 # Singleton instance
 redis_client = RedisClient()

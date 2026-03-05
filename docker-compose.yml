@@ -1,0 +1,220 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: nova-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - nova-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  auth:
+    build: ./services/auth
+    container_name: nova-auth
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - BROKER_CODE=${BROKER_CODE}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - nova-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  user:
+    build: ./services/user
+    container_name: nova-user
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - nova-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  market:
+    build: ./services/market
+    container_name: nova-market
+    restart: unless-stopped
+    ports:
+      - "8003:8003"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - BROKER_CODE=${BROKER_CODE}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - nova-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  trade:
+    build: ./services/trade
+    container_name: nova-trade
+    restart: unless-stopped
+    ports:
+      - "8004:8004"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - BROKER_CODE=${BROKER_CODE}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - nova-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  p2p:
+    build: ./services/p2p
+    container_name: nova-p2p
+    restart: unless-stopped
+    ports:
+      - "8005:8005"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - nova-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  broker:
+    build: ./services/broker
+    container_name: nova-broker
+    restart: unless-stopped
+    ports:
+      - "8006:8006"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - MASTER_API_KEY=${MASTER_API_KEY}
+      - MASTER_API_SECRET=${MASTER_API_SECRET}
+      - BROKER_CODE=${BROKER_CODE}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - nova-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8006/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  gateway:
+    build: ./services/gateway
+    container_name: nova-gateway
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - AUTH_SERVICE_URL=http://auth:8001
+      - USER_SERVICE_URL=http://user:8002
+      - MARKET_SERVICE_URL=http://market:8003
+      - TRADE_SERVICE_URL=http://trade:8004
+      - P2P_SERVICE_URL=http://p2p:8005
+      - BROKER_SERVICE_URL=http://broker:8006
+    depends_on:
+      auth:
+        condition: service_healthy
+      user:
+        condition: service_healthy
+      market:
+        condition: service_healthy
+      trade:
+        condition: service_healthy
+      p2p:
+        condition: service_healthy
+      broker:
+        condition: service_healthy
+    networks:
+      - nova-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  telegram:
+    build: ./services/telegram
+    container_name: nova-telegram
+    restart: unless-stopped
+    environment:
+      - GATEWAY_URL=http://gateway:8081
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+      - BROKER_CODE=${BROKER_CODE}
+    depends_on:
+      gateway:
+        condition: service_healthy
+    networks:
+      - nova-network
+
+  frontend:
+    build: ./frontend
+    container_name: nova-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://gateway:8081
+    depends_on:
+      gateway:
+        condition: service_healthy
+    networks:
+      - nova-network
+
+networks:
+  nova-network:
+    driver: bridge
+
+volumes:
+  redis-data:
