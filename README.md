@@ -1,48 +1,14 @@
-# Nova Global Keys 🚀
+Nova Global Keys is a production-grade crypto trading platform built around Bybit Level 3 Broker status (Kr000820). It runs as a 9-microservice backend on a self-managed Ubuntu VPS, with a Next.js frontend, Redis-backed session management, Kubernetes manifests for horizontal scale, and live Bybit V5 API integration.
 
-**Production-grade crypto trading platform with Bybit Level 3 Broker**
+The platform supports:
 
-Built in Pakistan. Running live. 400 API calls/sec.
+· Bybit OAuth 2.0 — users connect their exchange account via official broker flow
+· Multi-strategy trading — DCA, DEX, triangle arbitrage, grid trading
+· P2P payments — Easypaisa/JazzCash merchant rails
+· Telegram bot — full user-facing interface
+· MetaTrader 5 bridge — Dockerized MT5 integration
+· Remittance & compliance module
+· Signal bot — automated trading signals
+· Social bot — multi-platform posting automation
 
----
-
-## ✨ What It Does
-
-- **Bybit Level 3 Broker** – Code: `Kr000820` | Affiliate: `127146`
-- **400 API calls/second** – Enterprise grade
-- **Telegram Bot** – Trade from your phone: @Novaglobalkeysbot
-- **Auto Strategies** – DCA bots that buy for you
-- **OAuth Login** – Google + Bybit (secure)
-- **P2P Payments** – Easypaisa/JazzCash ready
-
----
-
-## 🔗 Live Links
-
-- **API Docs:** http://31.97.220.195:8080/docs
-- **Telegram:** https://t.me/Novaglobalkeysbot
-- **Python SDK:** https://pypi.org/project/nova-trading-sdk/
-- **Verify Broker:** https://www.bybit.com/en/oauth?client_id=x9dmxAGkDDoa&state=Kr000820&affiliate_id=127146
-
----
-
-## 🏗️ Built With
-
-- Python + FastAPI
-- Redis
-- Bybit API (Level 3 Broker)
-- Telegram Bot API
-- Docker (MT5 coming soon)
-
----
-
-## 👨‍💻 Creator
-
-**Rizwan Ali** – Founder  
-
-
----
-
-## ⚠️ Note
-
-Secrets are in `.env` (not committed). This is production code—handle with care.# nova-global-keys-
+Tech stack: Python · FastAPI · Node.js · Redis · PostgreSQL · SQLite · Nginx · systemd · PM2 · Docker · Kubernetes · Next.js · ethers.js · Bybit V5 · Binance · MT5.
