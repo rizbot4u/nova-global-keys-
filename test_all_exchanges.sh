@@ -1,6 +1,6 @@
 #!/bin/bash
 
-TOKEN="REDACTED"
+TOKEN="${NOVA_TOKEN:-}"
 
 echo "========================================="
 echo "🔍 NOVA GLOBAL KEYS - MULTI-EXCHANGE TEST"

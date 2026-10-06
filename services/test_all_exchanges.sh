@@ -1,7 +1,7 @@
 cat > /root/nova-global-keys-/test_all_exchanges.sh << 'EOF'
 #!/bin/bash
 
-TOKEN="REDACTED"
+TOKEN="${NOVA_TOKEN:-}"
 
 echo "========================================="
 echo "🔍 NOVA GLOBAL KEYS - MULTI-EXCHANGE TEST"

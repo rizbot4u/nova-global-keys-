@@ -1,6 +1,6 @@
 #!/bin/bash
 
-TOKEN="REDACTED"
+TOKEN="${NOVA_TOKEN:-}"
 
 echo "🔍 Testing Gateway Health"
 curl -s http://127.0.0.1:8081/health | python3 -m json.tool
