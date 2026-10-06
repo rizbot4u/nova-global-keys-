@@ -36,7 +36,7 @@ services:
       - "8001:8001"  # mt5linux API port
     environment:
       - VNC_USER=nova
-      - VNC_PASSWORD=REDACTED
+      - VNC_PASSWORD=${VNC_PASSWORD:?}
       - MT5_ACCOUNT=${MT5_ACCOUNT}
       - MT5_PASSWORD=${MT5_PASSWORD}
       - MT5_SERVER=${MT5_SERVER}
@@ -308,7 +308,7 @@ MT5_PASSWORD=your_password_here
 MT5_SERVER=Bybit-Demo
 
 # VNC Access (for manual login if needed)
-VNC_PASSWORD=REDACTED
+VNC_PASSWORD=${VNC_PASSWORD:?}
 EOF
 echo "✅ .env created (EDIT WITH YOUR CREDENTIALS)"
 echo ""
